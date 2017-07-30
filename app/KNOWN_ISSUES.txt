@@ -1,0 +1,18 @@
+1) curl_easy fully takes over execution flow. Resolution: use curl_multi
+2) curl_easy_perform can decompress too much data. Resolution: use curl_multi
+3) Scenario: bad DNS server (inaccessible or unusable causes DNS resolution to hang, even if
+principal is localhost. Resolution: use system DNS via --use-threaded-resolver
+4) Scenario: if local interface is specified during configuration, curl will try to bind to it.
+If ipv6 is enabled + network is not available, curl might horribly fail to bind, incurring
+significant delay (so far unexplained). May have to do with SO_BINDTODEVICE
+5) Scenario: curl submits upload with Expect: 100-Continue header, server responds with any
+non-100 response with body. This causes upload to be indefinitely blocked, waiting for download.
+This scenario apparently requires use of HTTP 1.1 (because Expect: 100-Continue does
+nothing in HTTP 1.0)
+6) Scenario: curl submits POST body, server responds (possibly with error, but not necessarily)
+in the middle of upload. Curl considers entire request complete. See also:
+CURLOPT_KEEP_SENDING_ON_ERROR. Needs extra discussion with curl developers.
+7) Using Keep-Alive + auto-retry + uploads results in violation of basic streaming assumption.
+There is no way to make that configuration compatible with streaming. This issue is not specific
+to curl, other HTTP clients suffer from it in different forms too.
+8) curl sturdiness against compression bombs is still to be evaluated

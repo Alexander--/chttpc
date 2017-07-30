@@ -1,0 +1,9 @@
+[submodule "lib/external/c-ares"]
+	path = lib/external/c-ares
+	url = https://github.com/c-ares/c-ares.git
+[submodule "lib/external/openssl"]
+	path = lib/external/openssl
+	url = https://github.com/openssl/openssl.git
+[submodule "lib/external/curl"]
+	path = lib/external/curl
+	url = https://github.com/curl/curl.git
