@@ -1,25 +1,31 @@
-package net.sf.xfd.hothttp;
+package net.sf.xfd.curl;
 
-import android.support.test.InstrumentationRegistry;
 import android.support.test.runner.AndroidJUnit4;
 
-import net.sf.xfd.curl.CurlConnection;
-import net.sf.xfd.curl.CurlHttp;
-
-import org.junit.*;
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
+import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.MalformedURLException;
-import java.net.SocketException;
 import java.net.SocketTimeoutException;
+import java.net.URLConnection;
 import java.net.UnknownHostException;
+import java.util.Locale;
+import java.util.Scanner;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import javax.net.ssl.SSLException;
 
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.SocketPolicy;
+
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 
 @RunWith(AndroidJUnit4.class)
 public class FailureTests extends BaseTestSuite {
@@ -61,6 +67,45 @@ public class FailureTests extends BaseTestSuite {
             conn.setUrlString(server.url("/").toString());
 
             conn.getResponseCode();
+        }
+    }
+
+    @Test(expected = Exception.class)
+    public void testSetMethodAfterConnect() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().setResponseCode(201));
+
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            conn.setUrlString(server.url("/").toString());
+
+            conn.connect();
+
+            conn.setRequestMethod("HEAD");
+        }
+    }
+
+    @Test(expected = Exception.class)
+    public void testInputWhenDoInputIsNotSet() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().setResponseCode(201));
+
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            conn.setUrlString(server.url("/").toString());
+            conn.setDoInput(false);
+
+            conn.getInputStream();
+        }
+    }
+
+    @Test(expected = IOException.class)
+    public void testGetInputStreamOnServerError() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().setResponseCode(500).setBody("Server Error!"));
+
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            conn.setUrlString(server.url("/").toString());
+
+            conn.getInputStream();
         }
     }
 
@@ -139,21 +184,37 @@ public class FailureTests extends BaseTestSuite {
         }
     }
 
-    @Test(expected = SocketTimeoutException.class)
+    @Test(expected = SocketTimeoutException.class, timeout = 2000)
     public void testConnTimeout() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
             CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
 
             server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE));
 
-            conn.setConnectTimeout(3000);
+            conn.setConnectTimeout(200);
             conn.setUrlString(server.url("/").toString());
 
             conn.getResponseCode();
         }
     }
 
-    @Test(expected = SocketException.class)
+    @Test(expected = SocketTimeoutException.class, timeout = 2000)
+    public void terribleTimeoutShowcase() throws Exception {
+        MockWebServer server = new MockWebServer();
+
+        CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+
+        server.enqueue(new MockResponse()
+                .throttleBody(1, 10000, TimeUnit.DAYS)
+                .setBody("xxxxxxxxxxxxxxxxxxxxxxxxxx"));
+
+        conn.setUrlString(server.url("/").toString());
+        conn.setReadTimeout(200);
+
+        convertStreamToString(conn.getInputStream());
+    }
+
+    @Test(expected = IOException.class)
     public void testTcpConnectFailure() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START));

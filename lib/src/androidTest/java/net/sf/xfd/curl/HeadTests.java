@@ -1,11 +1,7 @@
-package net.sf.xfd.hothttp;
+package net.sf.xfd.curl;
 
 import android.support.test.InstrumentationRegistry;
 import android.support.test.runner.AndroidJUnit4;
-
-import net.sf.xfd.curl.Curl;
-import net.sf.xfd.curl.CurlConnection;
-import net.sf.xfd.curl.CurlHttp;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;

@@ -1,9 +1,6 @@
-package net.sf.xfd.hothttp;
+package net.sf.xfd.curl;
 
 import android.support.test.runner.AndroidJUnit4;
-
-import net.sf.xfd.curl.CurlConnection;
-import net.sf.xfd.curl.CurlHttp;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -26,12 +23,16 @@ public class SimpleTest extends BaseTestSuite {
         baseSetup();
     }
 
+    @AfterClass
+    public static void cleanup() {
+        baseTeardown();
+    }
+
     @Test
     public void reuseTest() throws IOException, InterruptedException {
         try (MockWebServer server = new MockWebServer()) {
             CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
 
-            /*
             server.enqueue(new MockResponse()
                     .setResponseCode(201));
 
@@ -42,13 +43,11 @@ public class SimpleTest extends BaseTestSuite {
             server.enqueue(new MockResponse()
                     .setBody("Wow")
                     .setResponseCode(200));
-                    */
 
             server.enqueue(new MockResponse()
                     .setBody("NF")
-                    .setResponseCode(400));
+                    .setResponseCode(404));
 
-            /*
             conn.setRequestMethod("HEAD");
             conn.addRequestProperty("Test", "ddd");
             conn.setUrlString(server.url("/").toString());
@@ -83,17 +82,10 @@ public class SimpleTest extends BaseTestSuite {
             assertNull(request3.getHeader("Test"));
 
             conn.disconnect();
-            */
-            conn.setRequestMethod("HEAD");
-            conn.setRequestMethod("POST");
+
             conn.setUrlString(server.url("/").toString());
 
-            assertEquals(conn.getResponseCode(), 404);
+            assertEquals(404, conn.getResponseCode());
         }
-    }
-
-    @AfterClass
-    public static void cleanup() {
-        baseTeardown();
     }
 }

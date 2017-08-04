@@ -1,4 +1,4 @@
-package net.sf.xfd.hothttp;
+package net.sf.xfd.curl;
 
 import java.io.IOException;
 import java.io.InputStream;

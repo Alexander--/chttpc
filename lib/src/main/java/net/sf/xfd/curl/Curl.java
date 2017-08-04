@@ -8,7 +8,6 @@ import android.net.LinkProperties;
 import android.net.Network;
 import android.os.Build;
 import android.os.Build.VERSION_CODES;
-import android.os.NetworkOnMainThreadException;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.RequiresApi;
@@ -21,12 +20,11 @@ import java.net.ConnectException;
 import java.net.HttpRetryException;
 import java.net.InetAddress;
 import java.net.MalformedURLException;
-import java.net.NoRouteToHostException;
+import java.net.ProtocolException;
 import java.net.Proxy;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.net.URL;
-import java.net.URLConnection;
 import java.net.URLStreamHandler;
 import java.net.URLStreamHandlerFactory;
 import java.net.UnknownHostException;
@@ -42,19 +40,19 @@ public final class Curl {
         return new ConnectionBuilder(context);
     }
 
-    public interface ProxySource {
-        @Nullable
-        Proxy getProxy(String url);
-    }
-
     public interface DnsSource {
         @Nullable
         String getDnsServer();
     }
 
+    public interface ProxySource {
+        @Nullable
+        Proxy getProxy(MutableUrl url);
+    }
+
     public interface InterfaceSource {
         @Nullable
-        String getNetworkInterface();
+        String getNetworkInterface(MutableUrl url);
     }
 
     @SuppressWarnings("MissingPermission")
@@ -125,10 +123,6 @@ public final class Curl {
                 }
             }
 
-            if (ifSource == null && Build.VERSION.SDK_INT >= VERSION_CODES.N && hasNetStatePermission()) {
-                ifSource = getModernNetworkDetector();
-            }
-
             if (refQueue == null) {
                 final ConnectionReaper reaper = new ConnectionReaper();
 
@@ -196,12 +190,12 @@ public final class Curl {
         }
 
         @Override
-        public String getNetworkInterface() {
-            return interfaceSource == null ? null : interfaceSource.getNetworkInterface();
+        public String getNetworkInterface(@NonNull MutableUrl url) {
+            return interfaceSource == null ? null : interfaceSource.getNetworkInterface(url);
         }
 
         @Override
-        public Proxy getProxy(String url) {
+        public Proxy getProxy(@NonNull MutableUrl url) {
             return proxySource == null ? null : proxySource.getProxy(url);
         }
     }
@@ -218,20 +212,19 @@ public final class Curl {
 
         @Override
         public CurlConnection openConnection(URL url) throws IOException {
-            final String urlString = url.toExternalForm();
-            return openConnection(url, config.getProxy(urlString));
+            final CurlConnection connection = new CurlConnection(CurlHttp.create(refQueue), config);
+            connection.setUrlString(url.toString());
+            connection.setProxy(config.getProxy(connection.getCurl().url));
+            connection.setRequestProperty("Expect", null);
+            return connection;
         }
 
         @Override
         public CurlConnection openConnection(URL url, Proxy proxy) throws IOException {
-            return openConnection(url.toExternalForm(), proxy);
-        }
-
-        private CurlConnection openConnection(String url, Proxy proxy) {
             final CurlConnection connection = new CurlConnection(CurlHttp.create(refQueue), config);
+            connection.setUrlString(url.toString());
             connection.setProxy(proxy);
             connection.setRequestProperty("Expect", null);
-            connection.setUrlString(url);
             return connection;
         }
     }
@@ -244,11 +237,10 @@ public final class Curl {
     }
 
     @RequiresApi(api = VERSION_CODES.N)
-    private static final class NougatNetworkDetector extends ConnectivityManager.NetworkCallback implements DnsSource, InterfaceSource {
+    private static final class NougatNetworkDetector extends ConnectivityManager.NetworkCallback implements DnsSource {
         private final ConnectivityManager netMgr;
 
         private volatile String dnsServer;
-        private volatile String iFace;
 
         @RequiresPermission(permission.ACCESS_NETWORK_STATE)
         private NougatNetworkDetector(Context context) {
@@ -263,14 +255,8 @@ public final class Curl {
         }
 
         @Override
-        public String getNetworkInterface() {
-            return iFace;
-        }
-
-        @Override
         public void onLost(Network network) {
             dnsServer = null;
-            iFace = null;
         }
 
         @Override
@@ -284,8 +270,6 @@ public final class Curl {
         }
 
         private void updateLinkCfg(LinkProperties linkProperties) {
-            iFace = linkProperties.getInterfaceName();
-
             final List<InetAddress> servers = linkProperties.getDnsServers();
 
             if (!servers.isEmpty()) {
@@ -312,8 +296,9 @@ public final class Curl {
     private static final int ERROR_BAD_URL = 7;
     private static final int ERROR_BINDING_FAILURE = 8;
     private static final int ERROR_SSL_FAIL = 9;
-    private static final int ERROR_SOCKET_MISTERY = 10;
+    private static final int ERROR_SOCKET_MYSTERY = 10;
     private static final int ERROR_OOM = 11;
+    private static final int ERROR_PROTOCOL = 12;
 
     @SuppressWarnings("unused")
     private static void throwException(String message, int type, int arg) throws IOException {
@@ -328,15 +313,18 @@ public final class Curl {
                 throw new ConnectException(message);
             case ERROR_SSL_FAIL:
                 throw new SSLException(message);
-            case ERROR_SOCKET_MISTERY:
+            case ERROR_SOCKET_MYSTERY:
                 throw new SocketException(message);
             case ERROR_DNS_FAILURE:
                 throw new UnknownHostException(message);
+            case ERROR_PROTOCOL:
+                throw new ProtocolException(message);
             case ERROR_OOM:
                 throw new OutOfMemoryError();
             case ERROR_SOCKET_CONNECT_TIMEOUT:
+                throw new SocketTimeoutException("Socket connect timeout reached");
             case ERROR_SOCKET_READ_TIMEOUT:
-                throw new SocketTimeoutException("Socket timeout reached");
+                throw new SocketTimeoutException("Socket read timeout reached");
             case ERROR_USE_SYNCHRONIZATION:
                 throw new IllegalThreadStateException(
                         "You have called methods of this class on thread " + Thread.currentThread() + " " +
@@ -353,7 +341,9 @@ public final class Curl {
 
     static native void nativeInit();
 
-    static native long nativeCreate(boolean enableTcpKeepAlive,
+    static native long nativeCreate(boolean enableDebug,
+                                    boolean enableSendingAfterError,
+                                    boolean enableTcpKeepAlive,
                                     boolean enableFalseStart,
                                     boolean enableFastOpen);
 
@@ -373,7 +363,7 @@ public final class Curl {
             int chunkSize,
             boolean followRedirects,
             boolean doInput,
-            boolean doOutput);
+            boolean doOutput) throws IOException;
 
     static native void clearHeaders(long curlPtr);
 
@@ -393,9 +383,9 @@ public final class Curl {
 
     static native String getDnsCompat();
 
-    static native int nativeRead(long curlPtr, byte[] buf, int off, int count);
+    static native int nativeRead(long curlPtr, byte[] buf, int off, int count) throws IOException;
 
-    static native void nativeWrite(long curlPtr, byte[] buf, int off, int count);
+    static native void nativeWrite(long curlPtr, byte[] buf, int off, int count) throws IOException;
 
     int STATE_ATTACHED  =         0b000000001;
     int STATE_HANDLE_REDIRECT =   0b000000010;
@@ -407,7 +397,7 @@ public final class Curl {
     int STATE_NEED_OUTPUT =       0b010000000;
     int STATE_DONE_SENDING =      0b100000000;
 
-    int x =                       0b001110011;
+    int x =                       0b001110111;
     static native void nativeCloseOutput(long curlPtr);
 
     static native void nativeDispose(long curlPtr);

@@ -7,3 +7,9 @@
 [submodule "lib/external/curl"]
 	path = lib/external/curl
 	url = https://github.com/curl/curl.git
+[submodule "lib/external/mbedtls"]
+	path = lib/external/mbedtls
+	url = https://github.com/ARMmbed/mbedtls.git
+[submodule "lib/external/nghttp2"]
+	path = lib/external/nghttp2
+	url = https://github.com/nghttp2/nghttp2

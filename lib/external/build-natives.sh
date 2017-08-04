@@ -16,9 +16,13 @@ export A2_ROOT=$(realpath build/native-libs/$A2_ABI)
 
 export A2_DEST=$(realpath src/main/jniLibs/$A2_ABI)
 
-(./build-openssl.sh)
+#(./build-openssl.sh)
 
-#(./build-c-ares.sh)
+(./build-c-ares.sh)
+
+(./build-mbedtls.sh)
+
+(./build-nghttp.sh)
 
 export PATH="$A2_TOOLCHAIN/bin:$PATH"
 
@@ -37,10 +41,14 @@ autoreconf -fvi
     --disable-ldap --disable-ldaps --disable-rtsp --disable-rtmp --disable-pop3 --disable-imap \
     --disable-telnet --disable-smb --disable-smtp --disable-gopher --disable-file --disable-manual \
     --disable-unix-sockets --disable-sspi --disable-crypto-auth --disable-ntlm-wb --disable-tls-srp \
-    --without-gnutls --without-polarssl --without-mbedtls --without-cyassl --without-nss --without-libmetalink \
-    --without-ca-bundle --without-ca-path --without-ca-fallback  --without-libidn2 --without-nghttp2 \
-    --without-librtmp --without-zsh-functions-dir  --without-libssh2 --disable-ares --disable-cookies --disable-libcurl-option \
-    --with-ssl="$A2_ROOT" --enable-threaded-resolver \
+    --without-gnutls --without-polarssl --without-cyassl --without-nss --without-libmetalink \
+    --without-ca-bundle --without-ca-path --without-ca-fallback  --without-libidn2 --disable-cookies \
+    --without-librtmp --without-zsh-functions-dir  --without-libssh2 --disable-libcurl-option \
+    --without-ssl \
+    --enable-ares="$A2_ROOT" \
+    --with-nghttp2="$A2_ROOT" \
+    --with-mbedtls="$A2_ROOT" \
+    --disable-threaded-resolver \
     --with-libz --with-libz-prefix="$A2_TOOLCHAIN" \
     ac_cv_func_getpwuid=no \
     ac_cv_func_getpwuid_r=no \

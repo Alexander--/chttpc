@@ -1,4 +1,4 @@
-package net.sf.xfd.hothttp;
+package net.sf.xfd.curl;
 
 /*
  * Copyright (C) 2013 Square, Inc.

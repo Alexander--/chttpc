@@ -28,6 +28,7 @@ typedef int (*system_property_get)(const char *, char *);
 #define STATE_NEED_INPUT (1u << 6)
 #define STATE_NEED_OUTPUT (1u << 7)
 #define STATE_DONE_SENDING (1u << 8)
+#define STATE_SEEN_HEADER_END (1u << 9)
 
 #define SET_ATTACHED(i) (i->state |= STATE_ATTACHED)
 #define SET_DETACHED(i) (i->state &= ~STATE_ATTACHED)
@@ -56,6 +57,9 @@ typedef int (*system_property_get)(const char *, char *);
 #define SET_DONE_SENDING(i) (i->state |= STATE_DONE_SENDING)
 #define SET_NOT_DONE_SENDING(i) (i->state &= ~STATE_DONE_SENDING)
 
+#define SET_SEEN_HEADER_END(i) (i->state |= STATE_SEEN_HEADER_END)
+#define SET_SEEN_NO_HEADER_END(i) (i->state &= ~STATE_SEEN_HEADER_END)
+
 #define MAX_LOCAL_ALLOC (1024 * 8)
 
 #define TOLOWER(data) ((data > 0x40 && data < 0x5b) ? data|0x60 : data)
@@ -66,6 +70,12 @@ typedef int (*system_property_get)(const char *, char *);
 #define ACQUIRE(lock) (likely(!(__sync_lock_test_and_set(&(lock), 1))))
 
 #define RELEASE(lock) (__sync_lock_release(&(lock)))
+
+#if 1 //CHTTPC_DEBUG
+#define LOG(...) ((void) __android_log_print(ANDROID_LOG_DEBUG, "chttpc", __VA_ARGS__))
+#else
+#define LOG(...) {}
+#endif
 
 struct curl_hdr {
     struct curl_hdr* ref;
@@ -107,6 +117,42 @@ static jclass ioException;
 static jclass javaString;
 static jmethodID threadingCb;
 
+#define ERROR_USE_SYNCHRONIZATION 0
+#define ERROR_DNS_FAILURE 1
+#define ERROR_NOT_EVEN_HTTP 2
+#define ERROR_SOCKET_CONNECT_REFUSED 3
+#define ERROR_SOCKET_CONNECT_TIMEOUT 4
+#define ERROR_SOCKET_READ_TIMEOUT 5
+#define ERROR_RETRY_IMPOSSIBLE 6
+#define ERROR_BAD_URL 7
+#define ERROR_INTERFACE_BINDING_FAILED 8
+#define ERROR_SSL_FAIL 9
+#define ERROR_SOCKET_MYSTERY 10
+#define ERROR_OOM 11
+#define ERROR_PROTOCOL 12
+
+static __attribute__ ((noinline, cold)) void throwThreadingException(JNIEnv* env) {
+    (*env) -> CallStaticVoidMethod(env, wrapper, threadingCb, NULL, ERROR_USE_SYNCHRONIZATION, 0);
+    return;
+}
+
+static __attribute__ ((noinline, cold)) void oomThrow(JNIEnv* env) {
+    (*env) -> CallStaticVoidMethod(env, wrapper, threadingCb, NULL, ERROR_OOM, 0);
+    return;
+}
+
+static __attribute__ ((noinline)) void throwTimeout(JNIEnv* env, int transferred) {
+    int errorType = transferred > 0 ? ERROR_SOCKET_READ_TIMEOUT : ERROR_SOCKET_CONNECT_TIMEOUT;
+    (*env) -> CallStaticVoidMethod(env, wrapper, threadingCb, NULL, errorType, 0);
+    return;
+}
+
+static __attribute__ ((noinline)) void throwOther(JNIEnv* env, const char* error, int errType) {
+    jstring errMsg = (*env) -> NewStringUTF(env, error);
+    (*env) -> CallStaticVoidMethod(env, wrapper, threadingCb, errMsg, errType, 0);
+    return;
+}
+
 static inline void releaseHeaders(struct curl_data* ctrl) {
     for (int i = 0; i < ctrl->headerPairCount; i += 2) {
         free (ctrl->headerPairs[i]);
@@ -125,9 +171,7 @@ static inline bool headers_ensure_capacity(struct curl_data* ctrl, size_t newIte
     void* newAddress = realloc(ctrl->headerPairs, sizeof(char*) * 2 * targetItemCapacity);
 
     if (unlikely(newAddress == NULL)) {
-        JNIEnv* env = ctrl->env;
-
-        (*env) -> ThrowNew(env, ioException, "Out of memory");
+        oomThrow(ctrl->env);
 
         return true;
     }
@@ -144,17 +188,16 @@ static inline bool headers_ensure_capacity(struct curl_data* ctrl, size_t newIte
 static size_t read_callback(char *buffer, size_t size, size_t nitems, void *instream) {
     struct curl_data* ctrl = (struct curl_data*) (intptr_t) instream;
 
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "Read called for %d bytes, space left in buffer: %d, offset: %d",
-                        ctrl->countToWrite, size * nitems, ctrl->writeOffset);
+    LOG("Read called for %d bytes, space left in buffer: %d, offset: %d", ctrl->countToWrite, size * nitems, ctrl->writeOffset);
 
     if (ctrl->state & STATE_DONE_SENDING) {
-        __android_log_print(ANDROID_LOG_DEBUG, "Curl", "%s", "Stopping sending");
+        LOG("Stopping sending");
         SET_SEND_PAUSED(ctrl);
         return 0;
     }
 
     if (ctrl->countToWrite == 0) {
-        __android_log_print(ANDROID_LOG_DEBUG, "Curl", "Pausing sending");
+        LOG("Pausing sending");
 
         // we have run out of data to send, slow down
         SET_SEND_PAUSED(ctrl);
@@ -181,7 +224,7 @@ static size_t read_callback(char *buffer, size_t size, size_t nitems, void *inst
         // writing a single byte
         written = 1;
 
-        *buffer = (char) ctrl->writeOffset;
+        *buffer = (unsigned char) ctrl->writeOffset;
     }
 
     uint64_t goal = ctrl->uploadGoal;
@@ -200,7 +243,7 @@ static size_t read_callback(char *buffer, size_t size, size_t nitems, void *inst
 }
 
 static size_t eof_callback(char *buffer, size_t size, size_t nitems, void *instream) {
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "%s", "Stopping sending");
+    LOG("Stopping sending");
 
     struct curl_data* ctrl = (struct curl_data*) (intptr_t) instream;
 
@@ -217,20 +260,20 @@ static size_t connect_and_pause_callback(char *buffer, size_t size, size_t nitem
 
     SET_RECV_PAUSED(ctrl);
 
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "pausing for connect");
+    LOG("pausing for connect");
 
     return CURL_READFUNC_PAUSE;
 }
 
 // purposefully do not read response contents from server
 static size_t abort_receive_callback(char *buffer, size_t size, size_t nitems, void *userdata) {
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "%s", "Short-circuiting read()");
+    LOG("Short-circuiting read()");
 
     return 0;
 }
 
 static size_t skip_receive_callback(char *buffer, size_t size, size_t nitems, void *userdata) {
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "%s", "Omitting read data");
+    LOG("Omitting read data");
 
     return size * nitems;
 }
@@ -271,14 +314,32 @@ size_t header_callback(char *buffer, size_t size, size_t nitems,   void *userdat
         }
     }
 
+    uint16_t oldHeaderCount = 0;
     bool statusLine = false;
 
-    if (i == bufferLength && i > 5 && buffer[bufferLength - 2] == '\r' && buffer[bufferLength - 1] == '\n'
-        && buffer[0] == 'H' && buffer[1] == 'T' && buffer[2] == 'T' && buffer[3] == 'P') {
-            // this is a new status line, clear all previously received headers
-            hashmapClear(ctrl->headers);
-            releaseHeaders(ctrl);
+    if (i == bufferLength && i > 5 && buffer[bufferLength - 2] == '\r' && buffer[bufferLength - 1] == '\n') {
+        if (buffer[0] == 'H' && buffer[1] == 'T' && buffer[2] == 'T' && buffer[3] == 'P' && buffer[4] == '/') {
+            // this is a new status line
             statusLine = true;
+
+            if (ctrl->state & STATE_SEEN_HEADER_END) {
+                // This is a beginning of new request, clear all previously received headers
+                LOG("Received new request, resetting headers");
+                hashmapClear(ctrl->headers);
+                releaseHeaders(ctrl);
+
+                SET_SEEN_NO_HEADER_END(ctrl);
+            }
+
+            oldHeaderCount = ctrl->headerPairCount;
+            ctrl->headerPairCount = 0;
+        }
+
+        if (buffer[bufferLength - 4] == '\r' && buffer[bufferLength - 3] == '\n') {
+            SET_SEEN_HEADER_END(ctrl);
+
+            LOG("Got to the end of headers");
+        }
     }
 
     char* end = buffer + i;
@@ -316,7 +377,7 @@ size_t header_callback(char *buffer, size_t size, size_t nitems,   void *userdat
 
         hashmapPut(ctrl->headers, newHeaderPos, newValuePos);
     } else {
-        //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "Piu Piu for '%s'", (char*) old->key);
+        LOG("Piu Piu for '%s'", (char*) old->key);
 
         newHeaderPos = old->key;
 
@@ -339,8 +400,6 @@ size_t header_callback(char *buffer, size_t size, size_t nitems,   void *userdat
         ctrl->maxHeaderLength = (uint16_t) valueLen;
     }
 skip:
-    //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "Got a header, key: %s, value: %s", newHeaderPos, newValuePos->header);
-
     if (unlikely(headers_ensure_capacity(ctrl, ctrl->headerPairCount + 1))) {
         return 0;
     }
@@ -350,6 +409,10 @@ skip:
 
     headerrs[oldEnd] = newValuePos;
     headerrs[oldEnd + 1] = newHeaderPos;
+
+    if (statusLine) {
+        ctrl->headerPairCount = oldHeaderCount;
+    }
 
     ctrl->headerPairCount++;
 
@@ -363,19 +426,17 @@ static size_t seek_callback(void *userp, curl_off_t offset, int origin) {
 static size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
     struct curl_data* ctrl = (struct curl_data*) (intptr_t) userdata;
 
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "Write called for %d bytes, space left in buffer: %d",
-                        size * nmemb, ctrl->countToRead);
+    LOG("Write called for %d bytes, space left in buffer: %d", size * nmemb, ctrl->countToRead);
 
     if (ctrl->countToRead == 0) {
         SET_RECV_PAUSED(ctrl);
 
-        __android_log_print(ANDROID_LOG_DEBUG, "Curl", "Pausing receiving, flags: %d", ctrl->state);
+        LOG("Pausing receiving, flags: %d", ctrl->state);
 
         return CURL_READFUNC_PAUSE;
     }
 
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "Source offset: %d, target offset: %d",
-                        ctrl->readOverflow, ctrl->readOffset);
+    LOG("Source offset: %d, target offset: %d", ctrl->readOverflow, ctrl->readOffset);
 
     JNIEnv* env = ctrl->env;
     jbyteArray buf_ = ctrl->bufferForReceiving;
@@ -385,7 +446,7 @@ static size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdat
     if (ctrl->readOverflow >= curlPendingDateSize) {
         ctrl->readOverflow -= curlPendingDateSize;
 
-        //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "Detracting %d bytes from dept", curlPendingDateSize);
+        LOG("Detracting %d bytes from dept", curlPendingDateSize);
 
         return (size_t) curlPendingDateSize;
     }
@@ -407,7 +468,7 @@ static size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdat
         // consume a single byte
         read = 1;
 
-        *ptr = (char) ctrl->readOffset;
+        ctrl->readOffset = *ptr;
     }
 
     ctrl->countToRead -= read;
@@ -420,7 +481,7 @@ static size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdat
 
         SET_RECV_PAUSED(ctrl);
 
-        __android_log_print(ANDROID_LOG_DEBUG, "Curl", "Pausing receiving, flags: %d", ctrl->state);
+        LOG("Pausing receiving, flags: %d", ctrl->state);
 
         return CURL_READFUNC_PAUSE;
     } else {
@@ -431,48 +492,13 @@ static size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdat
 }
 
 curl_socket_t opensocket_callback(void *clientp, curlsocktype purpose, struct curl_sockaddr *address) {
-    //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "%s", "Opening socket");
+    LOG("Opening socket");
 
     return socket(address->family, address->socktype, address->protocol);
 }
 
-#define ERROR_USE_SYNCHRONIZATION 0
-#define ERROR_DNS_FAILURE 1
-#define ERROR_NOT_EVEN_HTTP 2
-#define ERROR_SOCKET_CONNECT_REFUSED 3
-#define ERROR_SOCKET_CONNECT_TIMEOUT 4
-#define ERROR_SOCKET_READ_TIMEOUT 5
-#define ERROR_RETRY_IMPOSSIBLE 6
-#define ERROR_BAD_URL 7
-#define ERROR_INTERFACE_BINDING_FAILED 8
-#define ERROR_SSL_FAIL 9
-#define ERROR_SOCKET_MISTERY 10
-#define ERROR_OOM 11
-
-static __attribute__ ((noinline, cold)) void throwThreadingException(JNIEnv* env) {
-    (*env) -> CallStaticVoidMethod(env, wrapper, threadingCb, NULL, ERROR_USE_SYNCHRONIZATION, 0);
-    return;
-}
-
-static __attribute__ ((noinline, cold)) void oomThrow(JNIEnv* env) {
-    (*env) -> CallStaticVoidMethod(env, wrapper, threadingCb, NULL, ERROR_OOM, 0);
-    return;
-}
-
-static __attribute__ ((noinline)) void throwTimeout(JNIEnv* env, int transferred) {
-    int errorType = transferred > 0 ? ERROR_SOCKET_READ_TIMEOUT : ERROR_SOCKET_CONNECT_TIMEOUT;
-    (*env) -> CallStaticVoidMethod(env, wrapper, threadingCb, NULL, errorType, 0);
-    return;
-}
-
-static __attribute__ ((noinline)) void throwOther(JNIEnv* env, const char* error, int errType) {
-    jstring errMsg = (*env) -> NewStringUTF(env, error);
-    (*env) -> CallStaticVoidMethod(env, wrapper, threadingCb, errMsg, errType, 0);
-    return;
-}
-
 static __attribute__ ((noinline,cold)) void handleMultiError(struct curl_data* curl, CURLMcode lastError) {
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "High-level interface error: %d", lastError);
+    LOG("High-level interface error: %d", lastError);
 
     size_t len = strlen(curl->errorBuffer);
 
@@ -494,12 +520,16 @@ static __attribute__ ((noinline,cold)) void handleMultiError(struct curl_data* c
         // there is already and exception pending, just let it be thrown and log this one
         __android_log_print(ANDROID_LOG_ERROR, "Curl", "Failed to throw, because an exception is pending already: %s", errorDesc);
     } else {
-        (*env) -> ThrowNew(env, ioException, errorDesc);
+        if (lastError == CURLM_OUT_OF_MEMORY) {
+            oomThrow(env);
+        } else {
+            (*env)->ThrowNew(env, ioException, errorDesc);
+        }
     }
 }
 
 static __attribute__ ((noinline)) void handleEasyError(struct curl_data* ctrl, CURLcode lastError) {
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "Low-level interface error: %d", lastError);
+    LOG("Low-level interface error: %d", lastError);
 
     if (lastError == CURLE_WRITE_ERROR && !(ctrl->state & STATE_DO_INPUT)) {
         // the caller set doInput to false, so we aborted read
@@ -529,7 +559,7 @@ static __attribute__ ((noinline)) void handleEasyError(struct curl_data* ctrl, C
         switch (lastError) {
             case CURLE_RECV_ERROR:
             case CURLE_SEND_ERROR:
-                throwOther(env, errorDesc, ERROR_SOCKET_MISTERY);
+                throwOther(env, errorDesc, ERROR_SOCKET_MYSTERY);
                 break;
             case CURLE_COULDNT_CONNECT:
                 throwOther(env, errorDesc, ERROR_SOCKET_CONNECT_REFUSED);
@@ -554,6 +584,13 @@ static __attribute__ ((noinline)) void handleEasyError(struct curl_data* ctrl, C
                 break;
             case CURLE_SEND_FAIL_REWIND:
                 throwOther(env, errorDesc, ERROR_RETRY_IMPOSSIBLE);
+                break;
+            case CURLE_HTTP2:
+            case CURLE_HTTP2_STREAM:
+                throwOther(env, errorDesc, ERROR_PROTOCOL);
+                break;
+            case CURLE_OUT_OF_MEMORY:
+                oomThrow(env);
                 break;
             default:
                 (*env) -> ThrowNew(env, ioException, errorDesc);
@@ -645,10 +682,6 @@ static inline int hashCalc(void* key) {
 }
 
 static inline bool hashKeyCompare(void* a, void* b) {
-    //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "8888");
-
-    //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "Comparing %s and %s", (char*) a, (char*) b);
-
     const unsigned char *p1 = (const unsigned char *) a;
     const unsigned char *p2 = (const unsigned char *) b;
 
@@ -661,12 +694,12 @@ static inline bool hashKeyCompare(void* a, void* b) {
         if (*p1++ == '\0')
             break;
 
-    //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "Comparison result %d", result);
-
     return result == 0;
 }
 
 JNIEXPORT jlong JNICALL Java_net_sf_xfd_curl_Curl_nativeCreate(JNIEnv *env, jclass type,
+                                                               jboolean enableDebug,
+                                                               jboolean enableSendingAfterError,
                                                                jboolean enableTcpKeepAlive,
                                                                jboolean enableFalseStart,
                                                                jboolean enableFastOpen) {
@@ -675,14 +708,10 @@ JNIEXPORT jlong JNICALL Java_net_sf_xfd_curl_Curl_nativeCreate(JNIEnv *env, jcla
     CURL* curl = curl_easy_init();
     CURLM* multi = curl_multi_init();
 
-    curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
-    curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, &logcat_tracer);
-
     // we are managing our own timeouts
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, LONG_MAX);
 
-    // needs extra considerations before this can be enabled
-    //curl_easy_setopt(curl, CURLOPT_KEEP_SENDING_ON_ERROR, 1L);
+    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
 
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_PROXY_SSL_VERIFYPEER, 0L);
@@ -690,7 +719,13 @@ JNIEXPORT jlong JNICALL Java_net_sf_xfd_curl_Curl_nativeCreate(JNIEnv *env, jcla
     curl_easy_setopt(curl, CURLOPT_PROXY_SSL_VERIFYHOST, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, CURLSSLOPT_ALLOW_BEAST | CURLSSLOPT_NO_REVOKE);
 
-    curl_easy_setopt(curl, CURLOPT_SSL_FALSESTART, enableFalseStart == JNI_TRUE? 1L : 0L);
+    if (enableDebug == JNI_TRUE) {
+        curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+        curl_easy_setopt(curl, CURLOPT_DEBUGFUNCTION, &logcat_tracer);
+    }
+
+    curl_easy_setopt(curl, CURLOPT_KEEP_SENDING_ON_ERROR, enableSendingAfterError == JNI_TRUE ? 1L : 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_FALSESTART, enableFalseStart == JNI_TRUE ? 1L : 0L);
     curl_easy_setopt(curl, CURLOPT_TCP_FASTOPEN, enableFastOpen == JNI_TRUE ? 1L : 0L);
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, enableTcpKeepAlive == JNI_TRUE ? 1L : 0L);
 
@@ -759,7 +794,7 @@ static void asciiDecode(JNIEnv* env, jstring str, char* dest, jint length) {
     const jchar* chars = (*env) -> GetStringCritical(env, str, NULL);
 
     for (int i = 0; i < length; ++i) {
-        dest[i] = (char) chars[i];
+        dest[i] = (unsigned char) chars[i];
     }
 
     (*env) -> ReleaseStringCritical(env, str, chars);
@@ -776,7 +811,7 @@ static bool checkResult(struct curl_data* handle) {
             return false;
         }
 
-        __android_log_print(ANDROID_LOG_DEBUG, "Curl", "curl_multi_info_read returned %d %d", (int) msg->msg, msg->data.result);
+        LOG("curl_multi_info_read returned %d %d", (int) msg->msg, msg->data.result);
 
 
         switch (msg->data.result) {
@@ -790,7 +825,7 @@ static bool checkResult(struct curl_data* handle) {
         }
     }
 
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "%s", "Events consumed");
+    LOG("Events consumed");
 
     return completed != 0;
 }
@@ -807,7 +842,7 @@ static bool curlPerform(struct curl_data* ctrl) {
     do {
         int running;
 
-        __android_log_print(ANDROID_LOG_DEBUG, "Curl", "Invoking perform()");
+        //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "Invoking perform()");
 
         CURLMcode result = curl_multi_perform(ctrl->multi, &running);
 
@@ -817,24 +852,24 @@ static bool curlPerform(struct curl_data* ctrl) {
         }
 
         if (checkResult(ctrl)) {
-            __android_log_print(ANDROID_LOG_DEBUG, "Curl", "Has completed connections, bailing");
+            LOG("Has completed connections, bailing");
             return true;
         }
 
-        if ((ctrl->state & STATE_NEED_INPUT && ctrl->state & STATE_RECV_PAUSED) ||
-                (ctrl->state & STATE_NEED_OUTPUT && (ctrl->state & STATE_SEND_PAUSED || ctrl->state & STATE_DONE_SENDING))) {
+        if ((ctrl->state & STATE_NEED_INPUT && ctrl->state & STATE_RECV_PAUSED) || (ctrl->state & STATE_NEED_OUTPUT
+                 && (ctrl->state & STATE_SEND_PAUSED || ctrl->state & STATE_RECV_PAUSED && ctrl->state & STATE_DONE_SENDING))) {
             // nothing to do for now
-            __android_log_print(ANDROID_LOG_DEBUG, "Curl", "Bailing, state is: %u", ctrl->state);
+            LOG("Bailing, state is: %u", ctrl->state);
             return false;
         } else if ((!(ctrl->state & STATE_NEED_OUTPUT) && !(ctrl->state & STATE_NEED_INPUT) && (ctrl->state & STATE_SEND_PAUSED || ctrl->state & STATE_RECV_PAUSED))) {
-            __android_log_print(ANDROID_LOG_DEBUG, "Curl", "state is: %u, headers comsumed", ctrl->state);
+            LOG("state is: %u, early headers comsumed", ctrl->state);
             return false;
         } else {
-            __android_log_print(ANDROID_LOG_DEBUG, "Curl", "state is: %u", ctrl->state);
+            //LOG("state is: %u", ctrl->state);
         }
 
         if (running == 0) {
-            __android_log_print(ANDROID_LOG_DEBUG, "Curl", "No running connections, bailing");
+            LOG("No running connections, bailing");
             return true;
         }
 
@@ -845,7 +880,7 @@ static bool curlPerform(struct curl_data* ctrl) {
             waitTime = timeout;
         }
 
-        __android_log_print(ANDROID_LOG_DEBUG, "Curl", "Timeout is %d, waiting for %d", timeout, waitTime);
+        //LOG("Timeout is %d, waiting for %d", timeout, waitTime);
 
         if (waitTime > 0) {
             CURLMcode waitResult = curl_multi_wait(ctrl->multi, NULL, 0, waitTime, &fdEvents);
@@ -856,7 +891,7 @@ static bool curlPerform(struct curl_data* ctrl) {
             }
         }
 
-        __android_log_print(ANDROID_LOG_DEBUG, "Curl", "Sockets with events: %d", fdEvents);
+        //LOG("Sockets with events: %d", fdEvents);
 
         if (fdEvents) {
             timeout = ctrl->headerPairCount == 0 ? ctrl->connTimeout : ctrl->readTimeout;
@@ -873,8 +908,8 @@ static bool curlPerform(struct curl_data* ctrl) {
             }
 
             if (timeout <= 0) {
-                __android_log_print(ANDROID_LOG_DEBUG, "Curl", "Remaining time is %d, bailing", timeout);
-                throwTimeout(ctrl->env, ctrl->headerPairCount == 0);
+                LOG("Remaining time is %d, bailing", timeout);
+                throwTimeout(ctrl->env, ctrl->headerPairCount);
                 return true;
             }
 
@@ -906,7 +941,7 @@ JNIEXPORT jcharArray JNICALL Java_net_sf_xfd_curl_Curl_nativeConfigure(JNIEnv *e
                                                                jboolean followRedirects,
                                                                jboolean doInput,
                                                                jboolean doOutput) {
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "++++++++nativeConfigure");
+    LOG("++++++++nativeConfigure");
 
     struct curl_data* ctrl = (struct curl_data *) (intptr_t) curlPtr;
 
@@ -930,7 +965,7 @@ JNIEXPORT jcharArray JNICALL Java_net_sf_xfd_curl_Curl_nativeConfigure(JNIEnv *e
 
     int i;
     for (i = 0; i < urlLength; ++i) {
-        urlBuffer[i] = (char) urlStr[i];
+        urlBuffer[i] = (unsigned char) urlStr[i];
     }
     urlBuffer[i] = '\0';
 
@@ -1087,12 +1122,12 @@ JNIEXPORT jcharArray JNICALL Java_net_sf_xfd_curl_Curl_nativeConfigure(JNIEnv *e
 
     SET_ATTACHED(ctrl);
 
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "%s", "before 'perform'");
+    //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "%s", "before 'perform'");
 
     int running;
     const CURLMcode connectResult = curl_multi_perform(ctrl->multi, &running);
 
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "%s", "after 'perform'");
+    //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "%s", "after 'perform'");
 
     switch (connectResult) {
         case CURLM_OK:
@@ -1106,7 +1141,7 @@ JNIEXPORT jcharArray JNICALL Java_net_sf_xfd_curl_Curl_nativeConfigure(JNIEnv *e
         goto enough;
     }
 
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "Comsuming headers");
+    LOG("Comsuming headers");
 
     if (curlPerform(ctrl)) {
         goto enough;
@@ -1176,7 +1211,7 @@ JNIEXPORT void JNICALL Java_net_sf_xfd_curl_Curl_nativeDispose(JNIEnv *env, jcla
 
 JNIEXPORT jint JNICALL Java_net_sf_xfd_curl_Curl_nativeRead(JNIEnv *env, jclass type, jlong curlPtr,
                                                       jbyteArray buf_, jint off, jint count) {
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "++++++++nativeRead");
+    LOG("++++++++nativeRead");
 
     struct curl_data* ctrl = (struct curl_data*) (intptr_t) curlPtr;
 
@@ -1208,11 +1243,11 @@ JNIEXPORT jint JNICALL Java_net_sf_xfd_curl_Curl_nativeRead(JNIEnv *env, jclass 
     //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "%s", "before perform inside read()");
 
     if (curlPerform(ctrl) && ctrl->countToRead > 0 && ctrl->countToRead == count) {
-        __android_log_print(ANDROID_LOG_DEBUG, "Curl", "%s", "returning -1 from read()");
+        LOG("returning -1 from read()");
         goto enough;
     }
 
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "returning %d from read()", count - ctrl->countToRead);
+    //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "returning %d from read()", count - ctrl->countToRead);
 
     jint retVal = count == 1 ? ctrl->readOffset : count - ctrl->countToRead;
 
@@ -1230,7 +1265,7 @@ enough:
 
 JNIEXPORT void JNICALL Java_net_sf_xfd_curl_Curl_nativeWrite(JNIEnv *env, jclass type, jlong curlPtr,
                                                        jbyteArray buf_, jint off, jint count) {
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "++++++++nativeWrite");
+    LOG("++++++++nativeWrite");
 
     struct curl_data* ctrl = (struct curl_data*) (intptr_t) curlPtr;
 
@@ -1269,7 +1304,7 @@ enough:
 }
 
 JNIEXPORT void JNICALL Java_net_sf_xfd_curl_Curl_nativeCloseOutput(JNIEnv *env, jclass type, jlong curlPtr) {
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "++++++++nativeClose");
+    LOG("++++++++nativeClose");
 
     struct curl_data* ctrl = (struct curl_data*) (intptr_t) curlPtr;
 
@@ -1297,7 +1332,7 @@ JNIEXPORT void JNICALL Java_net_sf_xfd_curl_Curl_nativeCloseOutput(JNIEnv *env, 
         }
     }
 
-    __android_log_print(ANDROID_LOG_DEBUG, "Curl", "Calling perform()");
+    //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "Calling perform()");
 
     if (!(ctrl->state & STATE_SEND_PAUSED)) {
         curlPerform(ctrl);
@@ -1559,7 +1594,7 @@ static const char* getHeader(JNIEnv *env, struct curl_data* ctrl, jstring key, j
         const jchar* strKey = (*env) -> GetStringCritical(env, key, NULL);
 
         for (int p = 0; p < l; ++p) {
-            localKey[p] = (char) strKey[p];
+            localKey[p] = (unsigned char) strKey[p];
         }
 
         (*env) -> ReleaseStringCritical(env, key, strKey);
@@ -1571,7 +1606,7 @@ static const char* getHeader(JNIEnv *env, struct curl_data* ctrl, jstring key, j
         struct curl_hdr* found = hashmapGet(ctrl->headers, localKey);
 
         if (found == NULL) {
-            //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "Not found :(");
+            LOG("Not found :(");
 
             return NULL;
         }
@@ -1669,7 +1704,7 @@ JNIEXPORT void JNICALL Java_net_sf_xfd_curl_Curl_setHeader(JNIEnv *env, jclass t
 
     int p;
     for (p = 0; p < kLen; ++p) {
-        localBuffer[p] = (char) key[p];
+        localBuffer[p] = (unsigned char) key[p];
     }
     localBuffer[p] = ':';
 
@@ -1734,7 +1769,7 @@ insert:
     const jchar *value = (*env)->GetStringCritical(env, value_, NULL);
 
     for (int i = 0; p < kLen + 1 + valLen; ++p, ++i) {
-        localBuffer[p] = (char) value[i];
+        localBuffer[p] = (unsigned char) value[i];
     }
     localBuffer[p] = '\0';
 
@@ -1780,13 +1815,13 @@ JNIEXPORT void JNICALL Java_net_sf_xfd_curl_Curl_addHeader(JNIEnv *env, jclass t
 
     int p = 0;
     for (; p < kLen; ++p) {
-        localBuffer[p] = (char) key[p];
+        localBuffer[p] = (unsigned char) key[p];
     }
 
     localBuffer[p++] = ':';
 
     for (int i = 0; p < kLen + 1 + valLen; ++p, ++i) {
-        localBuffer[p] = (char) value[i];
+        localBuffer[p] = (unsigned char) value[i];
     }
 
     localBuffer[p] = '\0';
@@ -1834,7 +1869,7 @@ JNIEXPORT jstring JNICALL Java_net_sf_xfd_curl_Curl_outHeader(JNIEnv *env, jclas
 
     size_t i;
     for (i = 0; i < kLen; ++i) {
-        localBuffer[i] = (char) key[i];
+        localBuffer[i] = (unsigned char) key[i];
     }
     localBuffer[i] = '\0';
 

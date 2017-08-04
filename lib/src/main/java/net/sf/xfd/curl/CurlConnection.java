@@ -1,8 +1,12 @@
 package net.sf.xfd.curl;
 
 import android.os.Build;
+import android.support.annotation.AnyThread;
+import android.support.annotation.BinderThread;
+import android.support.annotation.CheckResult;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.annotation.WorkerThread;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -51,11 +55,13 @@ public class CurlConnection extends HttpURLConnection {
     }
 
     @NonNull
+    @CheckResult
     public CurlHttp getCurl() {
         return curl;
     }
 
     @Override
+    @CheckResult
     public URL getURL() {
         try {
             return new URL(curl.getUrl().toString());
@@ -77,6 +83,8 @@ public class CurlConnection extends HttpURLConnection {
     }
 
     @Override
+    @AnyThread
+    @CheckResult
     public String getHeaderFieldKey(int n) {
         assertConnected();
 
@@ -84,6 +92,8 @@ public class CurlConnection extends HttpURLConnection {
     }
 
     @Override
+    @AnyThread
+    @CheckResult
     public String getHeaderField(int n) {
         assertConnected();
 
@@ -91,6 +101,8 @@ public class CurlConnection extends HttpURLConnection {
     }
 
     @Override
+    @AnyThread
+    @CheckResult
     public long getHeaderFieldLong(@NonNull String name, long Default) {
         assertConnected();
 
@@ -98,11 +110,14 @@ public class CurlConnection extends HttpURLConnection {
     }
 
     @Override
+    @AnyThread
     public int getHeaderFieldInt(@NonNull String name, int Default) {
         return (int) getHeaderFieldLong(name, Default);
     }
 
     @Override
+    @AnyThread
+    @CheckResult
     public String getHeaderField(@NonNull String name) {
         assertConnected();
 
@@ -110,6 +125,8 @@ public class CurlConnection extends HttpURLConnection {
     }
 
     @Override
+    @AnyThread
+    @CheckResult
     @SuppressWarnings("deprecation")
     public long getHeaderFieldDate(@NonNull String name, long Default) {
         final String value = getHeaderField(name);
@@ -122,6 +139,8 @@ public class CurlConnection extends HttpURLConnection {
     }
 
     @Override
+    @AnyThread
+    @CheckResult
     public @NonNull Map<String, List<String>> getHeaderFields() {
         assertConnected();
 
@@ -174,7 +193,7 @@ public class CurlConnection extends HttpURLConnection {
                 getRequestMethod(),
                 getProxyAddress(),
                 config.getDnsServers(),
-                config.getNetworkInterface(),
+                getNetworkInterface(),
                 getFixedLength(),
                 getReadTimeout(),
                 getConnectTimeout(),
@@ -186,9 +205,12 @@ public class CurlConnection extends HttpURLConnection {
                 getDoOutput());
 
         this.connected = true;
+
+        getResponseCode();
     }
 
     @Override
+    @CheckResult
     public boolean getInstanceFollowRedirects() {
         return instanceFollowRedirects;
     }
@@ -292,17 +314,11 @@ public class CurlConnection extends HttpURLConnection {
     private InputStream inputStream;
 
     @Override
+    @AnyThread
+    @CheckResult
     public InputStream getErrorStream() {
-        if (!doInput) {
-            throw new IllegalStateException("getErrorStream can not be called when doInput = false");
-        }
-
-        if (!connected || responseCode >= 0 && responseCode < 400) {
+        if (!connected || responseCode < 400) {
             return null;
-        }
-
-        if (inputStream == null) {
-            inputStream = curl.newInputStream();
         }
 
         return inputStream;
@@ -317,7 +333,7 @@ public class CurlConnection extends HttpURLConnection {
 
     @Override
     public int getResponseCode() throws IOException {
-        if (responseCode > 0) {
+        if (responseCode > 0 && responseCode != 100) {
             return responseCode;
         }
 
@@ -325,7 +341,7 @@ public class CurlConnection extends HttpURLConnection {
 
         final String statusLine = getHeaderField(0);
 
-        if (!statusLine.startsWith("HTTP/")) {
+        if (statusLine == null || !statusLine.startsWith("HTTP/")) {
             return -1;
         }
 
@@ -388,10 +404,12 @@ public class CurlConnection extends HttpURLConnection {
 
         createInputStream();
 
+        if (responseCode >= 400) {
+            throw new IOException("Server returned HTTP response code: " + responseCode + " for URL: " + curl.url);
+        }
+
         return inputStream;
     }
-
-    private static final byte[] z = new byte[0];
 
     @SuppressWarnings("all")
     private void createInputStream() throws IOException {
@@ -399,10 +417,6 @@ public class CurlConnection extends HttpURLConnection {
 
         if (inputStream == null) {
             inputStream = curl.newInputStream();
-
-            // Most callers of this class expect call to getInputStream to progress download
-            // past header parsing phase. Do it for them
-            inputStream.read(z);
         }
     }
 
@@ -424,6 +438,7 @@ public class CurlConnection extends HttpURLConnection {
     }
 
     @Override
+    @AnyThread
     public void setRequestProperty(@NonNull String key, String value) {
         assertNotConnected();
 
@@ -431,13 +446,16 @@ public class CurlConnection extends HttpURLConnection {
     }
 
     @Override
-    public void addRequestProperty(@NonNull String key, String value) {
+    @AnyThread
+    public void addRequestProperty(@NonNull String key, @NonNull String value) {
         assertNotConnected();
 
         curl.addHeaderField(key, value);
     }
 
     @Override
+    @AnyThread
+    @CheckResult
     public String getRequestProperty(@NonNull String key) {
         assertNotConnected();
 
@@ -445,6 +463,8 @@ public class CurlConnection extends HttpURLConnection {
     }
 
     @Override
+    @AnyThread
+    @CheckResult
     public Map<String, List<String>> getRequestProperties() {
         assertNotConnected();
 
@@ -485,8 +505,14 @@ public class CurlConnection extends HttpURLConnection {
     }
 
     @Override
+    @AnyThread
+    @CheckResult
     public boolean usingProxy() {
         return getProxyType() != CurlProxy.NONE;
+    }
+
+    private String getNetworkInterface() {
+        return config.getNetworkInterface(curl.url);
     }
 
     private String getProxyAddress() {
@@ -494,10 +520,13 @@ public class CurlConnection extends HttpURLConnection {
     }
 
     public interface Config {
+        @Nullable
         String getDnsServers();
 
-        String getNetworkInterface();
+        @Nullable
+        String getNetworkInterface(@NonNull MutableUrl url);
 
-        Proxy getProxy(String url);
+        @Nullable
+        Proxy getProxy(@NonNull MutableUrl url);
     }
 }

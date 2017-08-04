@@ -1,23 +1,23 @@
-package net.sf.xfd.hothttp;
+package net.sf.xfd.curl;
 
+import android.support.annotation.NonNull;
 import android.support.test.runner.AndroidJUnit4;
-
-import net.sf.xfd.curl.CurlConnection;
-import net.sf.xfd.curl.CurlHttp;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.OutputStream;
 import java.net.Proxy;
+import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Scanner;
 
-import okhttp3.HttpUrl;
+import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -38,18 +38,18 @@ public class PostTests extends BaseTestSuite {
             }
 
             @Override
-            public String getNetworkInterface() {
+            public String getNetworkInterface(@NonNull MutableUrl url) {
                 return null;
             }
 
             @Override
-            public Proxy getProxy(String url) {
+            public Proxy getProxy(@NonNull MutableUrl url) {
                 return null;
             }
         };
     }
 
-    @Test
+    @Test(timeout = 2000)
     public void testFixedLengthUploadContinue() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse()
@@ -79,7 +79,7 @@ public class PostTests extends BaseTestSuite {
         }
     }
 
-    @Test
+    @Test(timeout = 2000)
     public void testChunkedLengthUploadContinue() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse()
@@ -91,7 +91,13 @@ public class PostTests extends BaseTestSuite {
 
             final String bigBody = new String(chars);
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            final CurlHttp curl = new CurlHttp(true, false, false, false, false);
+
+            CleanerRef.create(curl, curl.curlPtr, queue);
+
+            CurlConnection conn = new CurlConnection(curl, config);
+
+            //CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
             conn.setDoOutput(true);
             conn.setRequestProperty("Expect", null);
             conn.setUrlString(server.url("/").toString());
@@ -111,7 +117,7 @@ public class PostTests extends BaseTestSuite {
         }
     }
 
-    @Test
+    @Test(timeout = 2000)
     public void testFixedLengthUploadNoExpect() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
             final String bigBody = "Get this!!!!!!!1!!!!!!!!!!!!!!!!2!!!!!!!!!!!!!!!!!!3!!!!!!!!!!4";
@@ -140,7 +146,7 @@ public class PostTests extends BaseTestSuite {
         }
     }
 
-    @Test
+    @Test(timeout = 2000)
     public void testChunkedLengthUploadNoExpect() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setBody("Nice"));
@@ -170,7 +176,7 @@ public class PostTests extends BaseTestSuite {
         }
     }
 
-    @Test
+    @Test(timeout = 3000)
     public void testFixedLengthUploadExpectContinue() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
             final String bigBody = "Get this!!!!!!!1!!!!!!!!!!!!!!!!2!!!!!!!!!!!!!!!!!!3!!!!!!!!!!4";
@@ -192,7 +198,7 @@ public class PostTests extends BaseTestSuite {
             }
 
             assertEquals("Nice", convertStreamToString(conn.getInputStream()));
-            assertEquals(conn.getResponseCode(), 200);
+            assertEquals(200, conn.getResponseCode());
 
             RecordedRequest request = server.takeRequest();
 
@@ -201,7 +207,48 @@ public class PostTests extends BaseTestSuite {
         }
     }
 
-    @Test
+    @Test(timeout = 3000)
+    public void testFixedLengthUploadExpectContinueWithHeaders() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            final String bigBody = "Get this!!!!!!!1!!!!!!!!!!!!!!!!2!!!!!!!!!!!!!!!!!!3!!!!!!!!!!4";
+
+            server.start();
+            server.enqueue(new MockResponse()
+                    .setHeader("foobar", "Hooray!")
+                    .setSocketPolicy(SocketPolicy.EXPECT_CONTINUE));
+
+            final CurlHttp curl = new CurlHttp(true, false, false, false, false);
+
+            CleanerRef.create(curl, curl.curlPtr, queue);
+
+            CurlConnection conn = new CurlConnection(curl, config);
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Expect", "100-Continue");
+            conn.setFixedLengthStreamingMode(bigBody.length());
+            conn.setUrlString(server.url("/").toString());
+
+            conn.connect();
+
+            assertEquals(100, conn.getResponseCode());
+            assertEquals(0, conn.getHeaderFieldInt("content-length", -1));
+
+            try (OutputStream stream = conn.getOutputStream()) {
+                stream.write(bigBody.getBytes(StandardCharsets.UTF_8));
+                stream.flush();
+            }
+
+            //assertEquals("Nice", convertStreamToString(conn.getInputStream()));
+            assertEquals(200, conn.getResponseCode());
+            assertEquals("Hooray!", conn.getHeaderField("FOOBAR"));
+
+            RecordedRequest request = server.takeRequest();
+
+            assertEquals("POST", request.getMethod());
+            assertEquals(bigBody, request.getBody().readUtf8());
+        }
+    }
+
+    @Test(timeout = 3000)
     public void testChunkedLengthUploadExpectContinue() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse()
@@ -226,22 +273,73 @@ public class PostTests extends BaseTestSuite {
             RecordedRequest request = server.takeRequest();
 
             assertEquals("Nice", convertStreamToString(conn.getInputStream()));
-            assertEquals(conn.getResponseCode(), 200);
+            assertEquals(200, conn.getResponseCode());
 
             assertEquals("POST", request.getMethod());
             assertEquals(bigBody, request.getBody().readUtf8());
         }
     }
 
-    private static String convertStreamToString(java.io.InputStream is) {
-        try (Scanner scanner = new Scanner(is, "UTF-8")) {
-            scanner.useLocale(new Locale("ru", "RU"));
+    @Ignore // okhttp bug #3498
+    @Test(timeout = 4000)
+    public void testFixedLengthUploadExpectNoContinue() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            final String bigBody = "Get this!!!!!!!1!!!!!!!!!!!!!!!!2!!!!!!!!!!!!!!!!!!3!!!!!!!!!!4";
 
-            return scanner.useDelimiter("\\A").next();
-        } catch (java.util.NoSuchElementException e) {
-            e.printStackTrace();
+            server.start();
+            server.enqueue(new MockResponse()
+                    .setBody("Nice"));
 
-            return "";
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Expect", "100-Continue");
+            conn.setFixedLengthStreamingMode(bigBody.length());
+            conn.setUrlString(server.url("/").toString());
+
+            try (OutputStream stream = conn.getOutputStream()) {
+                stream.write(bigBody.getBytes(StandardCharsets.UTF_8));
+                stream.flush();
+            }
+
+            assertEquals("Nice", convertStreamToString(conn.getInputStream()));
+            assertEquals(200, conn.getResponseCode());
+
+            RecordedRequest request = server.takeRequest();
+
+            assertEquals("POST", request.getMethod());
+            assertEquals(bigBody, request.getBody().readUtf8());
+        }
+    }
+
+    @Ignore // okhttp bug #3498
+    @Test(timeout = 4000)
+    public void testChunkedLengthUploadExpectNoContinue() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse()
+                    .setBody("Nice"));
+
+            char[] chars = new char[128000];
+            Arrays.fill(chars, 'u');
+
+            final String bigBody = new String(chars);
+
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Expect", "100-Continue");
+            conn.setUrlString(server.url("/").toString());
+
+            try (OutputStream stream = conn.getOutputStream()) {
+                stream.write(bigBody.getBytes(StandardCharsets.UTF_8));
+                stream.flush();
+            }
+
+            RecordedRequest request = server.takeRequest();
+
+            assertEquals("Nice", convertStreamToString(conn.getInputStream()));
+            assertEquals(200, conn.getResponseCode());
+
+            assertEquals("POST", request.getMethod());
+            assertEquals(bigBody, request.getBody().readUtf8());
         }
     }
 

@@ -1,30 +1,29 @@
-package net.sf.xfd.hothttp;
+package net.sf.xfd.curl;
 
-import android.support.test.InstrumentationRegistry;
 import android.support.test.runner.AndroidJUnit4;
-
-import net.sf.xfd.curl.Curl;
-import net.sf.xfd.curl.CurlConnection;
-import net.sf.xfd.curl.CurlHttp;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.InputStream;
-import java.net.SocketTimeoutException;
-import java.net.URL;
+import java.text.SimpleDateFormat;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.Scanner;
+import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
+import okhttp3.Protocol;
+import okhttp3.internal.http2.ErrorCode;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import okhttp3.mockwebserver.SocketPolicy;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
 
 @RunWith(AndroidJUnit4.class)
 public class GetTests extends BaseTestSuite {
@@ -57,6 +56,86 @@ public class GetTests extends BaseTestSuite {
             server.enqueue(new MockResponse()
                     .setSocketPolicy(SocketPolicy.SHUTDOWN_OUTPUT_AT_END)
                     .setResponseCode(200)
+                    .setBody("No luck"));
+
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            conn.setUrlString(server.url("/").toString());
+
+            assertEquals("No luck", convertStreamToString(conn.getInputStream()));
+            assertEquals(conn.getResponseCode(), 200);
+        }
+    }
+
+    @Test
+    public void testContentLength() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse()
+                    .setResponseCode(200)
+                    .setBody("No luck"));
+
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            conn.setUrlString(server.url("/").toString());
+
+            assertEquals("No luck", convertStreamToString(conn.getInputStream()));
+            assertEquals(200, conn.getResponseCode());
+            assertEquals("No luck".length(), conn.getHeaderFieldInt("content-length", -1));
+        }
+    }
+
+    @Test
+    public void testNonExistingDateHeader() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse()
+                    .setResponseCode(200)
+                    .setBody("No luck"));
+
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            conn.setUrlString(server.url("/").toString());
+
+            assertEquals("No luck", convertStreamToString(conn.getInputStream()));
+            assertEquals(200, conn.getResponseCode());
+            assertEquals(-1, conn.getHeaderFieldDate("hubla-wubla", -1));
+        }
+    }
+
+    @Test
+    public void testDateHeader() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            final SimpleDateFormat dateFormat = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US);
+            dateFormat.setTimeZone(TimeZone.getTimeZone("GMT"));
+
+            // strip milliseconds
+            long now = System.currentTimeMillis() / 1000;
+            now *= 1000;
+
+            final String formatted = dateFormat.format(now);
+
+            server.enqueue(new MockResponse()
+                    .setResponseCode(200)
+                    .setHeader("Date", formatted)
+                    .setBody("No luck"));
+
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            conn.setUrlString(server.url("/").toString());
+
+            assertEquals("No luck", convertStreamToString(conn.getInputStream()));
+            assertEquals(200, conn.getResponseCode());
+            assertEquals(now, conn.getHeaderFieldDate("date", -1));
+        }
+    }
+
+    @Test
+    @Ignore
+    @SuppressWarnings("deprecation")
+    public void testSslHttp2GetWithBody() throws Exception {
+        // TODO figure out what's up with
+        try (MockWebServer server = new MockWebServer()) {
+            server.setProtocols(Arrays.asList(Protocol.HTTP_2, Protocol.HTTP_1_1));
+            server.useHttps(factory, false);
+            server.setProtocolNegotiationEnabled(true);
+
+            server.enqueue(new MockResponse()
+                    .setHttp2ErrorCode(ErrorCode.NO_ERROR.httpCode)
                     .setBody("No luck"));
 
             CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
@@ -105,7 +184,7 @@ public class GetTests extends BaseTestSuite {
         }
     }
 
-    @Test
+    @Test(timeout = 6000)
     public void testSlowChunkedResponseBody() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
             server.useHttps(factory, false);
@@ -116,10 +195,12 @@ public class GetTests extends BaseTestSuite {
             server.enqueue(new MockResponse()
                     .setSocketPolicy(SocketPolicy.SHUTDOWN_OUTPUT_AT_END)
                     .setResponseCode(200)
-                    .throttleBody(6, 500, TimeUnit.MILLISECONDS)
+                    .throttleBody(6, 200, TimeUnit.MILLISECONDS)
                     .setChunkedBody(bigBody, 8));
 
             CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            conn.setConnectTimeout(1000);
+            conn.setReadTimeout(1000);
             conn.setUrlString(server.url("/").toString());
 
             assertEquals(bigBody, convertStreamToString(conn.getInputStream()));
@@ -203,18 +284,6 @@ public class GetTests extends BaseTestSuite {
 
             assertEquals("GET", request.getMethod());
             assertEquals("1", request.getHeader("X-Foobar"));
-        }
-    }
-
-    private static String convertStreamToString(java.io.InputStream is) {
-        try (Scanner scanner = new Scanner(is, "UTF-8")) {
-            scanner.useLocale(new Locale("ru", "RU"));
-
-            return scanner.useDelimiter("\\A").next();
-        } catch (java.util.NoSuchElementException e) {
-            e.printStackTrace();
-
-            return "";
         }
     }
 

@@ -3,10 +3,20 @@ package net.sf.xfd.curl;
 import android.support.annotation.CheckResult;
 import android.support.annotation.NonNull;
 
-import com.carrotsearch.hppc.BufferAllocationException;
-
 import java.util.Arrays;
 
+/**
+ * A {@link StringBuilder}-like type for constructing urls. This class does not perform
+ * any validation, or encoding so be careful to construct valid urls yourself.
+ *
+ * While the input data is stored in character {@link #buffer}, the final url supplied to
+ * {@link CurlHttp} is expected to contain only 7-bit ASCII symbols (all codepoints are converted
+ * to 8-bit chars by truncation before feeding to native library). If you want to use so-called
+ * "Unicode domain names", use {@link java.net.IDN}, {@link android.icu.text.IDNA} or similar
+ * facilities to convert domain names from international format to Punycode. If you expect to
+ * receive some parts of url or entire urls from outside, it is recommended, that you validate
+ * and transform those to canonical form, using specialized classes, such as {@link java.net.URL}.
+ */
 public class MutableUrl implements CharSequence {
     private static final char[] EMPTY = new char[0];
 
@@ -187,9 +197,7 @@ public class MutableUrl implements CharSequence {
         long newSize = Math.max((long) elementsCount + expectedAdditions, growTo);
 
         if (newSize > MAX_ARRAY_LENGTH) {
-            throw new BufferAllocationException(
-                    "Java array size exceeded (current length: %d, elements: %d, expected additions: %d)", currentBufferLength,
-                    elementsCount, expectedAdditions);
+            throw new RuntimeException("Java array size exceeded");
         }
 
         return (int) newSize;
