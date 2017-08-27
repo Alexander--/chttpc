@@ -25,9 +25,9 @@ public final class TestActivity extends Activity {
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        setContentView(net.sf.xfd.hothttp.R.layout.act_main);
+        setContentView(R.layout.act_main);
 
-        tileView = (TileView) findViewById(net.sf.xfd.hothttp.R.id.act_main_tiles);
+        tileView = (TileView) findViewById(R.id.act_main_tiles);
 
         tileView.setShouldLoopScale(false);
 
@@ -58,7 +58,7 @@ public final class TestActivity extends Activity {
         tileView.setShouldRenderWhilePanning(true);
 
         final ImageView downSample = new ImageView(this);
-        downSample.setImageResource(net.sf.xfd.hothttp.R.drawable.preview);
+        downSample.setImageResource(R.drawable.preview);
         tileView.addView(downSample, 0);
 
         //tileView.scrollToAndCenter(-75.15, 39.94d);
