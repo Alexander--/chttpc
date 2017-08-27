@@ -1,0 +1,31 @@
+language: android
+dist: trusty
+addons:
+  apt:
+    packages:
+    - pandoc
+    - realpath
+android:
+  components:
+    - tools
+    - platform-tools
+    - tools
+    - build-tools-25.0.2
+    - android-25
+licenses:
+    - 'android-sdk-preview-license-.+'
+    - 'android-sdk-license-.+'
+    - 'google-gdk-license-.+'
+script: ANDROID_NDK_HOME=$ANDROID_HOME/ndk-bundle/ ./gradlew assembleDebug --info
+before_install:
+    - echo -e "ndk.dir=$ANDROID_HOME/ndk-bundle/\nsdk.dir=$ANDROID_HOME" > local.properties
+    - yes | $ANDROID_HOME/tools/bin/sdkmanager ndk-bundle
+    - yes | $ANDROID_HOME/tools/bin/sdkmanager "cmake;3.6.4111459"
+jdk:
+  - oraclejdk8
+after_failure:
+  - pandoc lib/build/outputs/lint-results*.html -t plain
+cache:
+  directories:
+    - $HOME/.m2
+    - $HOME/.gradle
