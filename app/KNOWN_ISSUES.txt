@@ -4,11 +4,11 @@
 principal is localhost. Resolution: use system DNS via --use-threaded-resolver
 4) Scenario: if local interface is specified during configuration, curl will try to bind to it.
 If ipv6 is enabled + network is not available, curl might horribly fail to bind, incurring
-significant delay (so far unexplained). May have to do with SO_BINDTODEVICE
+significant delay (so far unexplained). Disabling SO_BINDTODEVICE does not help. What is the cause?
 5) Scenario: curl submits upload with Expect: 100-Continue header, server responds with any
 non-100 response with body. This causes upload to be indefinitely blocked, waiting for download.
 This scenario apparently requires use of HTTP 1.1 (because Expect: 100-Continue does
-nothing in HTTP 1.0)
+nothing in HTTP 1.0) (resolution: fixed)
 6) Scenario: curl submits POST body, server responds (possibly with error, but not necessarily)
 in the middle of upload. Curl considers entire request complete. See also:
 CURLOPT_KEEP_SENDING_ON_ERROR. Needs extra discussion with curl developers.

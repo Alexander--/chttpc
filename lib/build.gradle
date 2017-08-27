@@ -2,6 +2,8 @@ apply plugin: 'com.android.library'
 
 apply from: "$projectDir/prepare-natives.gradle"
 
+final int nativeVersionCode = 0
+
 android {
     compileSdkVersion 25
     buildToolsVersion "25.0.2"
@@ -14,10 +16,12 @@ android {
 
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
 
+        buildConfigField 'int', 'NATIVE_VER', "$nativeVersionCode"
+
         externalNativeBuild {
             cmake {
                 abiFilters 'x86', 'armeabi-v7a', 'mips'
-                arguments "-DANDROID_PLATFORM=android-15", "-DANDROID_TOOLCHAIN=gcc", "-DANDROID_ARM_MODE=thumb"
+                arguments "-DCHTTPC_NATIVE_VER:STRING=$nativeVersionCode", "-DANDROID_PLATFORM=android-15", "-DANDROID_TOOLCHAIN=gcc", "-DANDROID_ARM_MODE=thumb", "-DCMAKE_VERBOSE_MAKEFILE:BOOL=ON"
                 cFlags '-std=gnu11'
             }
         }
@@ -37,7 +41,7 @@ android {
     }
     externalNativeBuild {
         cmake {
-            path 'src/main/cpp/CMakeLists.txt'
+            path 'src/main/jni/CMakeLists.txt'
         }
     }
 }
@@ -65,6 +69,8 @@ repositories {
 }
 
 dependencies {
+    compile 'net.sf.xfd:i10n:0.3.1'
+
     compile fileTree(dir: 'libs', include: ['*.jar'])
     androidTestCompile('com.android.support.test.espresso:espresso-core:2.2.2', {
         exclude group: 'com.android.support', module: 'support-annotations'

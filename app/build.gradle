@@ -4,27 +4,51 @@ android {
     compileSdkVersion 25
     buildToolsVersion "25.0.2"
     defaultConfig {
-        applicationId "net.sf.xfd.hothttp"
-        minSdkVersion 15
+        applicationId 'net.sf.chttpc.demo'
+        minSdkVersion 21
         targetSdkVersion 25
         versionCode 1
-        versionName "1.0"
+        versionName '1.0'
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
     }
-    buildTypes {
-        debug {
-            testCoverageEnabled = true
-        }
 
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'x86', 'mips', 'armeabi-v7a'
         }
     }
+
+    buildTypes {
+        debug {
+            testCoverageEnabled = false
+            minifyEnabled false
+            multiDexEnabled true
+        }
+    }
+
+    /*
+    productFlavors {
+        simple {
+            proguardFiles 'proguard-none.pro'
+        }
+
+        proguard {
+            proguardFiles 'proguard-rules.pro'
+        }
+    }
+    */
 }
 
 dependencies {
     compile project(':lib')
+
+    compile 'net.sf.fakenames:tileview:0.3'
+
+    compile 'it.unimi.dsi:fastutil:7.2.1'
+
+    compile 'com.squareup.picasso:picasso:2.5.2'
 
     compile 'com.android.support:appcompat-v7:25.1.0'
 
