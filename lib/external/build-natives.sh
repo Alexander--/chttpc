@@ -29,7 +29,7 @@ cd curl
 
 #-flto
 
-export CFLAGS="$CFLAGS -pipe -fuse-ld=bfd -fpic -flto -fomit-frame-pointer -fvisibility=hidden -fno-function-sections -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -Wl,--warn-shared-textrel -Wl,--fatal-warnings"
+export CFLAGS="$CFLAGS -pipe -fuse-ld=bfd -fpic -flto -fomit-frame-pointer -fvisibility=hidden -fno-function-sections -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -frandom-seed=frkj23tfje4 -Werror=date-time -Wl,--warn-shared-textrel -Wl,--fatal-warnings"
 
 echo "$A2_ABI" | grep  -q  "mips" && CFLAGS="$CFLAGS -mno-split-addresses -mno-explicit-relocs"
 echo "$A2_ABI" | grep  -q  "armeabi-v7a" && CFLAGS="$CFLAGS -march=armv7-a -mfloat-abi=softfp -mfpu=vfpv3-d16"

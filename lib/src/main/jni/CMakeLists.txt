@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.4.1)
+cmake_minimum_required(VERSION 3.6)
 
 set(distribution_DIR ${CMAKE_SOURCE_DIR}/../../../external/build/native-libs)
 
@@ -26,7 +26,7 @@ set_target_properties(chttpc-${CHTTPC_NATIVE_VER} PROPERTIES LINK_DEPENDS ${CMAK
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Os -g0 -Wl,--exclude-libs,ALL")
 
-set(CURL_BASE_CFLAGS -Os -g0 -fuse-ld=bfd -fpic -flto -fomit-frame-pointer -fvisibility=hidden -ffunction-sections -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables)
+set(CURL_BASE_CFLAGS -Os -g0 -fuse-ld=bfd -fpic -flto -fomit-frame-pointer -fvisibility=hidden -ffunction-sections -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -frandom-seed=frkj23tfje4 -Werror=date-time)
 
 if(${ANDROID_ABI} MATCHES "^mips$")
   set(CURL_FULL_CFLAGS ${CURL_BASE_CFLAGS} -mno-split-addresses -mno-explicit-relocs)

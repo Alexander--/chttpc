@@ -37,7 +37,8 @@ android {
             testCoverageEnabled = true
         }
         release {
-            minifyEnabled false
+            minifyEnabled true
+            proguardFiles 'proguard-rules.pro'
         }
     }
     externalNativeBuild {

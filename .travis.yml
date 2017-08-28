@@ -25,6 +25,8 @@ jdk:
   - oraclejdk8
 after_failure:
   - pandoc lib/build/outputs/lint-results*.html -t plain
+after_success:
+  - ./repack.sh
 cache:
   directories:
     - $HOME/.m2

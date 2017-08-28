@@ -13,3 +13,6 @@
 [submodule "lib/external/nghttp2"]
 	path = lib/external/nghttp2
 	url = https://github.com/nghttp2/nghttp2
+[submodule "upx"]
+	path = upx
+	url = https://github.com/upx/upx

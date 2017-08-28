@@ -5,7 +5,7 @@ android {
     buildToolsVersion '25.0.2'
     defaultConfig {
         applicationId 'net.sf.chttpc.demo'
-        minSdkVersion 21
+        minSdkVersion 25
         targetSdkVersion 25
         versionCode 1
         versionName '1.0'
@@ -25,20 +25,13 @@ android {
             testCoverageEnabled = false
             minifyEnabled false
             multiDexEnabled true
-        }
-    }
-
-    /*
-    productFlavors {
-        simple {
-            proguardFiles 'proguard-none.pro'
-        }
-
-        proguard {
             proguardFiles 'proguard-rules.pro'
         }
     }
-    */
+
+    variantFilter {
+        ignore = !(buildType.name.startsWith('debug'))
+    }
 }
 
 dependencies {

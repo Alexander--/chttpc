@@ -104,6 +104,8 @@ const static int candidate_signals[] = { SIGWINCH, SIGTTIN, SIGTTOU };
 #define LOG(...) {}
 #endif
 
+JNIEXPORT void _init(void){}
+
 struct curl_hdr {
     struct curl_hdr* ref;
     char header[0];

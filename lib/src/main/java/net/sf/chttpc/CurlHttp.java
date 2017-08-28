@@ -8,9 +8,7 @@ import android.system.Os;
 
 import net.sf.xfd.Interruption;
 import net.sf.xfd.NativePeer;
-import net.sf.xfd.curl.BuildConfig;
 
-import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
