@@ -20,7 +20,7 @@ licenses:
     - 'android-sdk-preview-license-.+'
     - 'android-sdk-license-.+'
     - 'google-gdk-license-.+'
-script: ANDROID_NDK_HOME=$ANDROID_HOME/ndk-bundle/ ./gradlew assembleDebug --stacktrace
+script: ANDROID_NDK_HOME=$ANDROID_HOME/ndk-bundle/ TZ=UTC LC_ALL=C ./gradlew assembleDebug --stacktrace
 before_install:
     - echo -e "ndk.dir=$ANDROID_HOME/ndk-bundle/\nsdk.dir=$ANDROID_HOME" > local.properties
     - yes | $ANDROID_HOME/tools/bin/sdkmanager ndk-bundle
@@ -29,9 +29,20 @@ jdk:
   - oraclejdk8
 after_failure:
   - pandoc lib/build/outputs/lint-results*.html -t plain
-after_success:
+before_deploy:
   - ./repack.sh
 cache:
   directories:
     - $HOME/.m2
     - $HOME/.gradle
+deploy:
+  overwrite: true
+  provider: releases
+  api_key: "$GITHUB_API_KEY"
+  file:
+    - "release.aar"
+    - "release-compressed.aar"
+  skip_cleanup: true
+  on:
+    tags: true
+  tag_name: "$TRAVIS_TAG"
