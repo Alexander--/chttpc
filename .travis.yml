@@ -5,6 +5,7 @@ addons:
     packages:
     - pandoc
     - realpath
+    - strip-nondeterminism
 android:
   components:
     - tools
@@ -16,7 +17,7 @@ licenses:
     - 'android-sdk-preview-license-.+'
     - 'android-sdk-license-.+'
     - 'google-gdk-license-.+'
-script: ANDROID_NDK_HOME=$ANDROID_HOME/ndk-bundle/ ./gradlew assembleDebug --info
+script: ANDROID_NDK_HOME=$ANDROID_HOME/ndk-bundle/ ./gradlew assembleDebug --stacktrace
 before_install:
     - echo -e "ndk.dir=$ANDROID_HOME/ndk-bundle/\nsdk.dir=$ANDROID_HOME" > local.properties
     - yes | $ANDROID_HOME/tools/bin/sdkmanager ndk-bundle
