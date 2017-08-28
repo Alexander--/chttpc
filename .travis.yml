@@ -5,7 +5,6 @@ addons:
     packages:
     - pandoc
     - realpath
-    - strip-nondeterminism
 android:
   components:
     - tools
