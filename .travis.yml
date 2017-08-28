@@ -5,6 +5,10 @@ addons:
     packages:
     - pandoc
     - realpath
+    - libucl-dev
+    - libucl1
+    - advancecomp
+    - libarchive-zip-perl
 android:
   components:
     - tools

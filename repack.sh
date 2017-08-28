@@ -1,15 +1,17 @@
 #!/bin/bash
-rm *.aar
-rm -r ./release-package/
+rm *.aar &> /dev/null
+rm -r ./release-package/ &> /dev/null
 
 pushd upx
 make all
 popd
 
 pushd strip-nondeterminism
-perl Makefile.PL PREFIX=../tools
+mkdir -p ../tools
+perl Makefile.PL INSTALL_BASE=$(realpath ../tools)
 make
 make install
+export PERL5LIB=$(realpath ../tools/lib/perl5/)
 popd
 
 unzip -o lib/build/outputs/aar/lib-release.aar -d release-package
