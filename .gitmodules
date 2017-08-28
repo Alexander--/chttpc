@@ -16,3 +16,6 @@
 [submodule "upx"]
 	path = upx
 	url = https://github.com/upx/upx
+[submodule "strip-nondeterminism"]
+	path = strip-nondeterminism
+	url = https://anonscm.debian.org/git/reproducible/strip-nondeterminism.git

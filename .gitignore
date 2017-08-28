@@ -9,3 +9,6 @@ gradle.properties
 /captures
 .externalNativeBuild/
 /lib/external/build/
+release-package/
+tools/
+*.aar
