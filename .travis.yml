@@ -9,6 +9,7 @@ addons:
     - libucl1
     - advancecomp
     - libarchive-zip-perl
+    - fastjar
 android:
   components:
     - tools
