@@ -10,6 +10,7 @@ addons:
     - advancecomp
     - libarchive-zip-perl
     - fastjar
+    - faketime
 android:
   components:
     - tools
