@@ -3,6 +3,8 @@ package net.sf.chttpc;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.runner.AndroidJUnit4;
 
+import net.sf.chttpc.test.BaseTestSuite;
+
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -11,12 +13,15 @@ import org.junit.runner.RunWith;
 import java.io.IOException;
 import java.net.URL;
 import java.util.List;
+import java.util.Map;
 
 import okhttp3.Headers;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 
+import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.truth.Truth.assertWithMessage;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
@@ -44,11 +49,11 @@ public class HeadTests extends BaseTestSuite {
             conn.setRequestMethod("HEAD");
             conn.setUrlString(server.url("/").toString());
 
-            assertEquals(conn.getResponseCode(), 201);
+            assertThat(conn.getResponseCode()).isEqualTo(201);
 
             final RecordedRequest request = server.takeRequest();
 
-            assertEquals("HEAD", request.getMethod());
+            assertThat(request.getMethod()).isEqualTo("HEAD");
         }
     }
 
@@ -62,11 +67,11 @@ public class HeadTests extends BaseTestSuite {
 
             conn.setRequestMethod("HEAD");
 
-            assertEquals(conn.getResponseCode(), 201);
+            assertThat(conn.getResponseCode()).isEqualTo(201);
 
             final RecordedRequest request = server.takeRequest();
 
-            assertEquals("HEAD", request.getMethod());
+            assertThat(request.getMethod()).isEqualTo("HEAD");
         }
     }
 
@@ -82,12 +87,54 @@ public class HeadTests extends BaseTestSuite {
             conn.setUrlString(server.url("/").toString());
             conn.addRequestProperty("X-Foobar", "2");
 
-            assertEquals(conn.getResponseCode(), 201);
+            assertThat(conn.getResponseCode()).isEqualTo(201);
 
             final RecordedRequest request = server.takeRequest();
 
-            assertEquals("HEAD", request.getMethod());
-            assertEquals("2", request.getHeader("X-Foobar"));
+            assertThat(request.getMethod()).isEqualTo("HEAD");
+            assertThat(request.getHeader("X-Foobar")).isEqualTo("2");
+        }
+    }
+
+    @Test
+    public void testHeadAddEmptyClientHeader() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+
+            server.enqueue(new MockResponse()
+                    .setResponseCode(201));
+
+            conn.setRequestMethod("HEAD");
+            conn.setUrlString(server.url("/").toString());
+            conn.addRequestProperty("X-Foobar", "");
+
+            assertThat(conn.getResponseCode()).isEqualTo(201);
+
+            final RecordedRequest request = server.takeRequest();
+
+            assertThat(request.getMethod()).isEqualTo("HEAD");
+            assertThat(request.getHeader("X-Foobar")).isEqualTo("");
+        }
+    }
+
+    @Test
+    public void testHeadSetEmptyClientHeader() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+
+            server.enqueue(new MockResponse()
+                    .setResponseCode(201));
+
+            conn.setRequestMethod("HEAD");
+            conn.setUrlString(server.url("/").toString());
+            conn.setRequestProperty("X-Foobar", "");
+
+            assertThat(conn.getResponseCode()).isEqualTo(201);
+
+            final RecordedRequest request = server.takeRequest();
+
+            assertThat(request.getMethod()).isEqualTo("HEAD");
+            assertThat(request.getHeader("X-Foobar")).isEqualTo("");
         }
     }
 
@@ -417,6 +464,154 @@ public class HeadTests extends BaseTestSuite {
 
             assertEquals("HEAD", request.getMethod());
         }
+    }
+
+    @Test
+    public void testHeaderMap() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+
+            String[] doodleducks = new String[] {
+                    "Doodleduck-A", "1X" ,
+                    "Doodleduck-B", "2X" ,
+                    "Doodleduck-C", "3X" ,
+                    "Doodleduck-D", "4X" ,
+                    "Doodleduck-E", "5X" ,
+                    "Doodleduck-F", "6X" ,
+                    "Doodleduck-G", "7X" ,
+                    "Doodleduck-H", "8X" ,
+                    "Doodleduck-I", "9X" ,
+                    "Doodleduck-J", "10X" ,
+                    "Doodleduck-K", "11X" ,
+                    "Doodleduck-L", "12X" ,
+                    "Doodleduck-M", "13X" ,
+            };
+
+            server.enqueue(new MockResponse()
+                    .setResponseCode(201)
+                    .setHeaders(Headers.of(doodleducks)));
+
+            conn.setRequestMethod("HEAD");
+            conn.setUrlString(server.url("/").toString());
+
+            assertEquals(conn.getResponseCode(), 201);
+            assertEquals("HTTP/1.1 201 OK", conn.getHeaderField(0));
+            assertNull(conn.getHeaderFieldKey(0));
+
+            assertNull(conn.getHeaderField(doodleducks.length + 1));
+            assertNull(conn.getHeaderField(Integer.MAX_VALUE));
+            assertNull(conn.getHeaderField("oddduck"));
+
+            final RecordedRequest request = server.takeRequest();
+
+            assertEquals("HEAD", request.getMethod());
+
+            Map<String, List<String>> map = conn.getHeaderFields();
+
+            assertEquals(doodleducks.length / 2, map.size());
+
+            for (int i = 2; i < doodleducks.length; i += 2) {
+                List<String> list = map.get(doodleducks[i - 2]);
+
+                assertEquals(1, list.size());
+                assertEquals(doodleducks[i - 1], list.get(0));
+            }
+        }
+    }
+
+    @Test
+    public void testResponseHeaderMultiMap() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+
+            String[] doodleducks = new String[]{
+                    "Doodleduck-A", "1X",
+                    "Doodleduck-B", "2X",
+                    "Doodleduck-C", "3X",
+                    "Doodleduck-D", "4X",
+                    "Doodleduck-E", "5X",
+                    "Doodleduck-A", "2X",
+                    "Doodleduck-F", "6X",
+                    "Doodleduck-G", "7X",
+                    "Doodleduck-H", "8X",
+                    "Doodleduck-I", "9X",
+                    "Doodleduck-J", "10X",
+                    "Doodleduck-K", "11X",
+                    "Doodleduck-L", "12X",
+                    "Doodleduck-J", "32t24y4",
+                    "Doodleduck-M", "",
+                    "Doodleduck-J", "wlqr-q3ot4gwmnbwirnb",
+                    "Doodleduck-J", "efqg",
+                    "Doodleduck-J", "efqg",
+                    "Doodleduck-B", "agehehr",
+                    "Doodleduck-J", "d",
+            };
+
+            Headers hdrs = Headers.of(doodleducks);
+
+            server.enqueue(new MockResponse()
+                    .setHeaders(hdrs)
+                    .setResponseCode(201));
+
+            conn.setRequestMethod("HEAD");
+            conn.setUrlString(server.url("/").toString());
+
+            assertEquals(conn.getResponseCode(), 201);
+
+            Map<String, List<String>> expectedMap = hdrs.toMultimap();
+            Map<String, List<String>> actualMap = conn.getHeaderFields();
+
+            //assertThat(actualMap).hasSize(expectedMap.size());
+
+            assertThat(actualMap.entrySet())
+                    .comparingElementsUsing(EqualsIgnoreCase.INSTANCE)
+                    .containsExactlyElementsIn(expectedMap.entrySet());
+        }
+    }
+
+    @Test
+    public void testRequestHeaderMultiMap() throws Exception {
+        CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+
+        String[] doodleducks = new String[]{
+                "Doodleduck-A", "1X",
+                "Doodleduck-B", "2X",
+                "Doodleduck-C", "3X",
+                "Doodleduck-D", "4X",
+                "Doodleduck-E", "5X",
+                "Doodleduck-A", "2X",
+                "Doodleduck-F", "6X",
+                "Doodleduck-G", "7X",
+                "Doodleduck-H", "8X",
+                "Doodleduck-I", "9X",
+                "Doodleduck-J", "10X",
+                "Doodleduck-K", "11X",
+                "Doodleduck-L", "12X",
+                "Doodleduck-J", "32t24y4",
+                "Doodleduck-M", "",
+                "Doodleduck-J", "wlqr-q3ot4gwmnbwirnb",
+                "Doodleduck-J", "efqg",
+                "Doodleduck-J", "efqg",
+                "Doodleduck-B", "agehehr",
+                "Doodleduck-J", "d",
+        };
+
+        Headers hdrs = Headers.of(doodleducks);
+
+        for (int i = 0; i < doodleducks.length; i += 2) {
+            String header = doodleducks[i];
+            String value = doodleducks[i + 1];
+            conn.addRequestProperty(header, value);
+        }
+
+        Map<String, List<String>> expectedMap = hdrs.toMultimap();
+        Map<String, List<String>> actualMap = conn.getRequestProperties();
+
+        //assertThat(actualMap).hasSize(expectedMap.size());
+
+        assertThat(actualMap.entrySet())
+                .comparingElementsUsing(EqualsIgnoreCase.INSTANCE)
+                .containsExactlyElementsIn(expectedMap.entrySet());
     }
 
     @AfterClass

@@ -3,9 +3,10 @@ package net.sf.chttpc;
 import android.support.annotation.NonNull;
 import android.support.test.runner.AndroidJUnit4;
 
+import net.sf.chttpc.test.BaseTestSuite;
+
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -14,9 +15,7 @@ import java.io.OutputStream;
 import java.net.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.concurrent.TimeUnit;
 
-import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
@@ -271,7 +270,6 @@ public class PostTests extends BaseTestSuite {
         }
     }
 
-    @Ignore // okhttp bug #3498
     @Test(timeout = 4000)
     public void testFixedLengthUploadExpectNoContinue() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
@@ -302,7 +300,6 @@ public class PostTests extends BaseTestSuite {
         }
     }
 
-    @Ignore // okhttp bug #3498
     @Test(timeout = 4000)
     public void testChunkedLengthUploadExpectNoContinue() throws Exception {
         try (MockWebServer server = new MockWebServer()) {

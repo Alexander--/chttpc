@@ -2,6 +2,7 @@ package net.sf.chttpc;
 
 import android.support.annotation.CheckResult;
 import android.support.annotation.NonNull;
+import android.text.GetChars;
 
 import java.util.Arrays;
 
@@ -33,16 +34,6 @@ public class MutableUrl implements CharSequence {
     public void append(char ch) {
         ensureBufferSpace(1);
         buffer[length++] = ch;
-    }
-
-    public void append(long number) {
-        if (number == Long.MIN_VALUE) {
-            append("-2147483648");
-        }
-        int appendedLength = (number < 0) ? stringSize(-number) + 1 : stringSize(number);
-        ensureBufferSpace(appendedLength);
-        IntParser.getNumberChars(number, length + appendedLength, buffer);
-        length += appendedLength;
     }
 
     public void append(String string) {
@@ -77,60 +68,14 @@ public class MutableUrl implements CharSequence {
         length += count;
     }
 
-    public void insert(int dstOffset, String string) {
-        if (dstOffset < 0 || dstOffset >= length) throw new IndexOutOfBoundsException();
-
-        insertNoCheck(dstOffset, string, 0, string.length());
-    }
-
-    public void insert(int dstOffset, String string, int off, int count) {
-        if (dstOffset < 0 || dstOffset >= length
-                || off < 0 || count < 0) throw new IndexOutOfBoundsException();
-
-        insertNoCheck(dstOffset, string, off, count);
-    }
-
-    protected void insertNoCheck(int dstOffset, String string, int off, int count) {
-        final char[] dest;
-        if (length + count > buffer.length) {
-            dest = new char[grow(buffer.length, length, count)];
-            System.arraycopy(buffer, 0, dest, 0, dstOffset);
-        } else {
-            dest = buffer;
+    public void append(long number) {
+        if (number == Long.MIN_VALUE) {
+            append("-2147483648");
         }
-
-        System.arraycopy(buffer, dstOffset, dest, dstOffset + count, length - dstOffset);
-        string.getChars(off, count, dest, dstOffset);
-        length += count;
-    }
-
-    public void insert(int dstOffset, CharSequence chars) {
-        if (dstOffset < 0 || dstOffset >= length) throw new IndexOutOfBoundsException();
-
-        insert(dstOffset, chars, 0, chars.length());
-    }
-
-    public void insert(int dstOffset, CharSequence chars, int off, int count) {
-        if (dstOffset < 0 || dstOffset >= length
-                || off < 0 || count < 0) throw new IndexOutOfBoundsException();
-
-        insertNoCheck(dstOffset, chars, off, count);
-    }
-
-    protected void insertNoCheck(int dstOffset, CharSequence chars, int off, int count) {
-        final char[] dest;
-        if (length + count > buffer.length) {
-            dest = new char[grow(buffer.length, length, count)];
-            System.arraycopy(buffer, 0, dest, 0, dstOffset);
-        } else {
-            dest = buffer;
-        }
-
-        System.arraycopy(buffer, dstOffset, dest, dstOffset + count, length - dstOffset);
-        for (int i = 0; i < count; ++i) {
-            buffer[length + i] = chars.charAt(off + i);
-        }
-        length += count;
+        int appendedLength = (number < 0) ? stringSize(-number) + 1 : stringSize(number);
+        ensureBufferSpace(appendedLength);
+        IntParser.getNumberChars(number, length + appendedLength, buffer);
+        length += appendedLength;
     }
 
     public void setLength(int newLength) {

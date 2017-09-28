@@ -165,7 +165,7 @@ public class CurlHttp {
      * {@link #addHeaderField}, only the last one will be changed.
      */
     public void setHeaderField(@NonNull String key, @Nullable String value) {
-        Curl.setHeader(curlPtr, key, value, key.length(), value == null ? 0 : value.length());
+        Curl.setHeader(curlPtr, key, value, key.length(), value == null ? -1 : value.length());
     }
 
     /**

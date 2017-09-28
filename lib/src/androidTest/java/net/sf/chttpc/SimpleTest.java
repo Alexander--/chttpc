@@ -2,6 +2,8 @@ package net.sf.chttpc;
 
 import android.support.test.runner.AndroidJUnit4;
 
+import net.sf.chttpc.test.BaseTestSuite;
+
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -75,7 +77,7 @@ public class SimpleTest extends BaseTestSuite {
             conn.setRequestProperty("Test", null);
             conn.setUrlString(server.url("/").toString());
 
-            assertEquals(conn.getResponseCode(), 200);
+            assertEquals(200, conn.getResponseCode());
 
             final RecordedRequest request3 = server.takeRequest();
             assertEquals("POST", request3.getMethod());

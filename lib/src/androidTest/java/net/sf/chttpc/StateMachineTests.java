@@ -2,6 +2,8 @@ package net.sf.chttpc;
 
 import android.support.test.runner.AndroidJUnit4;
 
+import net.sf.chttpc.test.BaseTestSuite;
+
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -167,28 +169,29 @@ public class StateMachineTests extends BaseTestSuite {
     public void outHeadersPreservation() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse()
-                    .setResponseCode(200)
+                    .setResponseCode(297)
                     .setBody("1"));
 
             server.enqueue(new MockResponse()
-                    .setResponseCode(200)
+                    .setResponseCode(298)
                     .setBody("2"));
 
             server.enqueue(new MockResponse()
-                    .setResponseCode(200)
+                    .setResponseCode(299)
                     .setBody("3"));
 
             CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
             conn.setUrlString(server.url("/").toString());
+            conn.setRequestMethod("GET");
             conn.setDoInput(false);
             conn.addRequestProperty("testtest", "123");
             conn.setInstanceFollowRedirects(true);
 
             conn.connect();
-            conn.disconnect();
+            conn.reset();
 
             conn.connect();
-            conn.disconnect();
+            conn.reset();
 
             assertEquals("123", server.takeRequest().getHeader("testtest"));
             assertEquals("123", server.takeRequest().getHeader("testtest"));

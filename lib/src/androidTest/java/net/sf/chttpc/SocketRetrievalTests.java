@@ -6,18 +6,18 @@ import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
 
+import net.sf.chttpc.test.BaseTestSuite;
+
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
-import java.net.Socket;
-import java.nio.ByteBuffer;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.channels.SocketChannel;
-import java.util.Random;
 
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -25,9 +25,13 @@ import okhttp3.mockwebserver.SocketPolicy;
 import okio.Buffer;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
 public class SocketRetrievalTests extends BaseTestSuite {
+    // minimal heap size is 16MB, so...
+    private static final int HUGE_BUFFER = 10 * 1024 * 1024;
+
     @BeforeClass
     public static void setupCleaner() throws Exception {
         baseSetup();
@@ -43,23 +47,14 @@ public class SocketRetrievalTests extends BaseTestSuite {
         File f = File.createTempFile("wgwehweh", "wgwehwehw");
 
         try {
-            byte[] randomPayload = new byte[16 * 1024 * 1024];
-
-            random.read(randomPayload);
-
-            ByteBuffer payloadBuffer = ByteBuffer.wrap(randomPayload);
-
-            Buffer bufferWithBody = new Buffer().write(randomPayload);
-
             final SocketChannel throwaway = SocketChannel.open();
             throwaway.configureBlocking(false);
 
-            try (ParcelFileDescriptor inFd = ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_WRITE)) {
-                int written = 0;
+            try (ParcelFileDescriptor inFd = ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_WRITE);
+                 InputStream inputStream = new ParcelFileDescriptor.AutoCloseInputStream(inFd);
+                 OutputStream outputStream = new ParcelFileDescriptor.AutoCloseOutputStream(inFd)) {
 
-                while (written < randomPayload.length) {
-                    written += Os.write(inFd.getFileDescriptor(), payloadBuffer);
-                }
+                populateFromRandom(outputStream);
 
                 Os.lseek(inFd.getFileDescriptor(), 0, OsConstants.SEEK_SET);
 
@@ -70,7 +65,7 @@ public class SocketRetrievalTests extends BaseTestSuite {
                             .setBody("Gee!"));
 
                     CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
-                    conn.setFixedLengthStreamingMode(randomPayload.length);
+                    conn.setFixedLengthStreamingMode(HUGE_BUFFER);
                     conn.setUrlString(server.url("/").toString());
                     conn.setDoOutput(true);
                     conn.connect();
@@ -82,22 +77,26 @@ public class SocketRetrievalTests extends BaseTestSuite {
                         try {
                             int sent = 0;
 
-                            while (sent < randomPayload.length) {
-
-                                sent += Os.sendfile(outFd.getFileDescriptor(), inFd.getFileDescriptor(), null, randomPayload.length);
+                            while (sent < HUGE_BUFFER) {
+                                sent += Os.sendfile(outFd.getFileDescriptor(), inFd.getFileDescriptor(), null, HUGE_BUFFER - sent);
                             }
                         } finally {
                             throwaway.configureBlocking(false);
                         }
                     }
 
+                    Os.lseek(inFd.getFileDescriptor(), 0, OsConstants.SEEK_SET);
 
-                    assertEquals(bufferWithBody, server.takeRequest().getBody());
+                    assertTrue(isEqual(inputStream, server.takeRequest().getBody().inputStream()));
                 }
             }
         } finally {
             //noinspection ResultOfMethodCallIgnored
             f.delete();
         }
+    }
+
+    private void populateFromRandom(OutputStream outputStream) throws IOException {
+        new Buffer().readFrom(random, HUGE_BUFFER).writeTo(outputStream);
     }
 }

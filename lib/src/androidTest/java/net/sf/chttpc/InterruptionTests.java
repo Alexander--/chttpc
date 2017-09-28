@@ -2,6 +2,8 @@ package net.sf.chttpc;
 
 import android.support.test.runner.AndroidJUnit4;
 
+import net.sf.chttpc.test.BaseTestSuite;
+
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;

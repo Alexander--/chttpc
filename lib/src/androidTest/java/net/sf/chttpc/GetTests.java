@@ -1,11 +1,11 @@
 package net.sf.chttpc;
 
 import android.support.test.runner.AndroidJUnit4;
-import android.system.ErrnoException;
+
+import net.sf.chttpc.test.BaseTestSuite;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -15,7 +15,6 @@ import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Locale;
-import java.util.Random;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
@@ -26,12 +25,14 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 import okhttp3.mockwebserver.SocketPolicy;
 import okio.Buffer;
-import okio.BufferedSource;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
 public class GetTests extends BaseTestSuite {
+    private static final int HUGE_BUFFER = 10 * 1024 * 1024;
+
     @BeforeClass
     public static void setupCleaner() throws Exception {
         baseSetup();
@@ -130,7 +131,6 @@ public class GetTests extends BaseTestSuite {
     }
 
     @Test
-    @Ignore
     @SuppressWarnings("deprecation")
     public void testSslHttp2GetWithBody() throws Exception {
         // TODO figure out what's up with
@@ -234,7 +234,7 @@ public class GetTests extends BaseTestSuite {
             conn.getResponseCode();
 
             assertEquals("Here we go", convertStreamToString(conn.getInputStream()));
-            assertEquals(conn.getResponseCode(), 200);
+            assertEquals(200, conn.getResponseCode());
             assertEquals(url2, conn.getURL().toString());
         }
     }
@@ -271,8 +271,6 @@ public class GetTests extends BaseTestSuite {
         try (MockWebServer server = new MockWebServer()) {
             CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
 
-            boolean crap = conn.getDoInput();
-
             server.enqueue(new MockResponse()
                     .setStatus("HTTP/1.1 200 You are moron")
                     .addHeaderLenient("X-Hi", "              Welcome   ")
@@ -298,9 +296,7 @@ public class GetTests extends BaseTestSuite {
         File f = File.createTempFile("egwt6u", "324trh");
 
         try (MockWebServer server = new MockWebServer()) {
-            final long length = 16 * 1024 * 1024;
-
-            Buffer body = randomBody(length);
+            Buffer body = randomBody(HUGE_BUFFER);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(200)
@@ -310,11 +306,7 @@ public class GetTests extends BaseTestSuite {
 
             conn.setUrlString(server.url("/").toString());
 
-            final Buffer received = new Buffer();
-
-            received.readFrom(conn.getInputStream(), length);
-
-            assertEquals(received, body);
+            assertTrue(isEqual(body.inputStream(), conn.getInputStream()));
         } finally {
             f.delete();
         }

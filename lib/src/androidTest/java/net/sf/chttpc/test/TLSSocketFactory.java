@@ -1,4 +1,4 @@
-package net.sf.chttpc;
+package net.sf.chttpc.test;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -14,7 +14,7 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManagerFactory;
 
-class TLSSocketFactory {
+final class TLSSocketFactory {
     static SSLSocketFactory loadMockCertContext(InputStream stream) throws KeyStoreException, NoSuchAlgorithmException, KeyManagementException, UnrecoverableKeyException, IOException, CertificateException {
         char[] password = "111111".toCharArray();
 

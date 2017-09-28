@@ -23,6 +23,13 @@ find . -type f | sort | faketime -f "$STARTDATE" fastjar -@c0M > ../classes.jar
 popd
 rm -r classes-repacked/
 
+unzip -o libs/libs.jar -d libs-repacked
+rm libs/libs.jar
+pushd libs-repacked
+find . -type f | sort | faketime -f "$STARTDATE" fastjar -@c0M > ../libs/libs.jar
+popd
+rm -r libs-repacked/
+
 unzip -o annotations.zip -d annotations-repacked
 rm annotations.zip
 pushd annotations-repacked

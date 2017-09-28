@@ -1,0 +1,66 @@
+import proguard.gradle.ProGuardTask
+
+apply plugin: 'com.github.johnrengelman.shadow'
+apply plugin: 'java'
+apply plugin: 'idea'
+
+sourceCompatibility = '1.7'
+targetCompatibility = '1.7'
+
+def genSourceDir = new File(projectDir, "generated/apt")
+
+compileJava {
+    doFirst {
+        genSourceDir.mkdirs()
+    }
+    options.compilerArgs += ['-s', genSourceDir]
+}
+
+
+sourceSets {
+    generated {
+        java.srcDirs = [genSourceDir]
+    }
+}
+
+idea {
+    module {
+        generatedSourceDirs += file('generated/apt')
+    }
+}
+
+shadowJar {
+    exclude 'META-INF/**/pom.xml'
+    exclude 'META-INF/**/pom.properties'
+    relocate '*', 'net.sf.chttpc'
+}
+
+task depsProguard(type: ProGuardTask, dependsOn: tasks.shadowJar) {
+    injars files(tasks.shadowJar.outputs)
+    libraryjars files("${System.getProperty('java.home')}/lib/rt.jar")
+    outjars file("$buildDir/libs/deps.jar")
+
+    configuration files('proguard-config.pro', 'assumenosideeffects.pro')
+
+    whyareyoukeeping 'class com.koloboke.**'
+    whyareyoukeeping 'class net.sf.**'
+
+    classobfuscationdictionary file('dict.txt')
+
+    inputs.files('dict.txt', 'proguard-config.pro', 'assumenosideeffects.pro')
+    outputs.file("$buildDir/libs/deps.jar")
+
+    printusage file("$buildDir/usage.txt")
+    printseeds file("$buildDir/seeds.txt")
+    printmapping file("$buildDir/maping.txt")
+
+    verbose()
+    allowaccessmodification()
+    useuniqueclassmembernames()
+    dontusemixedcaseclassnames()
+    dontskipnonpubliclibraryclassmembers()
+}
+
+dependencies {
+    compile 'com.carrotsearch:hppc:0.7.2'
+}

@@ -21,16 +21,18 @@ import java.sql.Date;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
 public class CurlConnection extends HttpURLConnection {
+    @SuppressWarnings("all")
+    private static final String REQ_METHOD_DEFAULT = new String("GET");
+
     private final CurlHttp curl;
     private final Config config;
 
-    private Map<String, List<String>> headerMap;
+    private HeaderMap headerMap;
 
     protected Proxy proxy;
 
@@ -39,6 +41,8 @@ public class CurlConnection extends HttpURLConnection {
 
         this.config = config;
         this.curl = curl;
+
+        this.method = REQ_METHOD_DEFAULT;
     }
 
     public void setUrlString(@NonNull String urlString) {
@@ -145,7 +149,7 @@ public class CurlConnection extends HttpURLConnection {
     public @NonNull Map<String, List<String>> getHeaderFields() {
         assertConnected();
 
-        Map<String, List<String>> headerMap = this.headerMap;
+        HeaderMap headerMap = this.headerMap;
 
         if (headerMap != null) {
             return headerMap;
@@ -153,16 +157,20 @@ public class CurlConnection extends HttpURLConnection {
 
         final String[] cachedHeaders = curl.getResponseHeaders();
 
-        if (cachedHeaders == null || cachedHeaders.length == 1) {
+        if (cachedHeaders == null || cachedHeaders.length == 0) {
             return Collections.emptyMap();
         }
 
         final List<String> headerList = Arrays.asList(cachedHeaders);
 
-        headerMap = new HashMap<>(cachedHeaders.length);
+        headerMap = HeaderMap.create(cachedHeaders.length);
 
         for (int i = 0; i < cachedHeaders.length; ++i) {
             final String headerName = cachedHeaders[i];
+
+            if (headerName == null) {
+                break;
+            }
 
             int j = i + 2;
             while (j < cachedHeaders.length && cachedHeaders[j] != null) {
@@ -176,7 +184,7 @@ public class CurlConnection extends HttpURLConnection {
                 headerValues = headerList.subList(i + 1, j);
             }
 
-            headerMap.put(headerName, headerValues);
+            headerMap.justPut(headerName, headerValues);
 
             i = j;
         }
@@ -234,6 +242,26 @@ public class CurlConnection extends HttpURLConnection {
         return instanceFollowRedirects;
     }
 
+    @SuppressWarnings("StringEquality")
+    private boolean usingDefaultMethod() {
+        return method == REQ_METHOD_DEFAULT;
+    }
+
+    @Override
+    public String getRequestMethod() {
+        if (!usingDefaultMethod()) {
+            return super.getRequestMethod();
+        }
+
+        if (doOutput) {
+            return "POST";
+        } else if (doInput) {
+            return "GET";
+        } else {
+            return "HEAD";
+        }
+    }
+
     public void setRequestMethod(@Nullable String newMethod) throws ProtocolException {
         if (connected) {
             throw new ProtocolException("Can't reset method: already connected");
@@ -244,29 +272,6 @@ public class CurlConnection extends HttpURLConnection {
         }
 
         this.method = newMethod.toUpperCase(Locale.US);
-
-        switch (newMethod) {
-            case "HEAD":
-                doInput = false;
-                doOutput = false;
-                break;
-            case "PUT":
-            case "POST":
-                doOutput = true;
-        }
-    }
-
-    @Override
-    public void setDoOutput(boolean doOutput) {
-        this.doOutput = doOutput;
-
-        if (doOutput) {
-            switch (method) {
-                case "HEAD":
-                case "GET":
-                    method = "POST";
-            }
-        }
     }
 
     @CurlProxy.ProxyType
@@ -304,6 +309,12 @@ public class CurlConnection extends HttpURLConnection {
 
     @Override
     public void disconnect() {
+        reset();
+
+        curl.clearHeaders();
+    }
+
+    public void reset() {
         connected = false;
         responseCode = -1;
 
@@ -492,7 +503,7 @@ public class CurlConnection extends HttpURLConnection {
             return Collections.emptyMap();
         }
 
-        final HashMap<String, List<String>> map = new HashMap<>(headerArray.length);
+        final HeaderMap map = HeaderMap.create(headerArray.length);
 
         for (int i = 0; i < headerArray.length && headerArray[i] != null; i += 2) {
             final String key = headerArray[i];
@@ -503,12 +514,12 @@ public class CurlConnection extends HttpURLConnection {
             ArrayList<String> arrayList = null;
 
             if (existing == null) {
-                map.put(key, Collections.singletonList(value));
+                map.justPut(key, Collections.singletonList(value));
             } else {
                 if (existing.size() == 1) {
                     arrayList = new ArrayList<>(2);
                     arrayList.add(existing.get(0));
-                    map.put(key, arrayList);
+                    map.justPut(key, arrayList);
                 } else {
                     arrayList = (ArrayList<String>) existing;
                 }

@@ -1,22 +1,24 @@
-package net.sf.chttpc;
+package net.sf.chttpc.test;
 
 import android.support.annotation.NonNull;
 import android.support.test.InstrumentationRegistry;
 
-import java.io.Closeable;
+import net.sf.chttpc.*;
+
+import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.ref.Reference;
 import java.lang.ref.ReferenceQueue;
 import java.net.Proxy;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.Scanner;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.net.ssl.SSLSocketFactory;
-
-import net.sf.xfd.curl.test.R;
 
 import okio.Buffer;
 
@@ -44,9 +46,10 @@ public class BaseTestSuite {
                     try {
                         Reference<?> c = queue.remove();
                         c.clear();
-                        ((Closeable) c).close();
-                    } catch (Throwable ignored) {
-                        // ok
+                    } catch (InterruptedException done) {
+                        return;
+                    } catch (Throwable t) {
+                        throw new AssertionError(t);
                     }
                 } while (!done.get());
             }
@@ -107,6 +110,25 @@ public class BaseTestSuite {
             }
 
             return result;
+        }
+    }
+
+    protected boolean isEqual(InputStream is1, InputStream is2) throws IOException {
+        byte[] buf1 = new byte[32 * 1024];
+        byte[] buf2 = new byte[32 * 1024];
+        try {
+            DataInputStream d2 = new DataInputStream(is2);
+            int len;
+            while ((len = is1.read(buf1)) > 0) {
+                d2.readFully(buf2,0,len);
+
+                if (!Arrays.equals(buf1, buf2)) {
+                    return false;
+                }
+            }
+            return d2.read() < 0; // is the end of the second file also.
+        } catch(EOFException ioe) {
+            return false;
         }
     }
 }

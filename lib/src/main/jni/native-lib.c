@@ -98,7 +98,7 @@ const static int candidate_signals[] = { SIGWINCH, SIGTTIN, SIGTTOU };
 
 #define ARRAY_SIZE(x) (sizeof(x)/sizeof((x)[0]))
 
-#if CHTTPC_DEBUG
+#if 1//CHTTPC_DEBUG
 #define LOG(...) ((void) __android_log_print(ANDROID_LOG_DEBUG, "chttpc", __VA_ARGS__))
 #else
 #define LOG(...) {}
@@ -444,9 +444,9 @@ size_t header_callback(char *buffer, size_t size, size_t nitems,   void *userdat
 
     Entry* old = entryGet(ctrl->headers, newHeaderPos);
     if (old == NULL) {
-        newValuePos->ref = newValuePos;
-
         hashmapPut(ctrl->headers, newHeaderPos, newValuePos);
+
+        newValuePos->ref = newValuePos;
     } else {
         LOG("Piu Piu for '%s'", (char*) old->key);
 
@@ -455,10 +455,7 @@ size_t header_callback(char *buffer, size_t size, size_t nitems,   void *userdat
         struct curl_hdr* existing = old->value;
 
         newValuePos->ref = existing->ref;
-
-        if (existing->ref == existing) {
-            existing->ref = newValuePos;
-        }
+        existing->ref = newValuePos;
 
         old->value = newValuePos;
     }
@@ -942,7 +939,9 @@ static bool curlPerform(struct curl_data* ctrl) {
             // nothing to do for now
             LOG("Bailing, state is: %u", ctrl->state);
             return false;
-        } else if ((!(ctrl->state & STATE_NEED_OUTPUT) && !(ctrl->state & STATE_NEED_INPUT) && (ctrl->state & STATE_SEND_PAUSED || ctrl->state & STATE_RECV_PAUSED))) {
+        } else if (!(ctrl->state & STATE_NEED_OUTPUT) && !(ctrl->state & STATE_NEED_INPUT)
+                   && (ctrl->state & STATE_SEND_PAUSED || ctrl->state & STATE_RECV_PAUSED
+                       || (ctrl->state & STATE_SEEN_HEADER_END && (!(ctrl->state & STATE_HANDLE_REDIRECT) || !hashmapGet(ctrl->headers, "Location"))))) {
             LOG("state is: %u, early headers comsumed", ctrl->state);
             return false;
         } else {
@@ -1102,48 +1101,47 @@ JNIEXPORT jcharArray JNICALL Java_net_sf_chttpc_Curl_nativeConfigure(JNIEnv *env
 
     const char* reqMethodStr;
 
-    if (reqType != HTTP_TYPE_CUSTOM) {
-        curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, NULL);
-
-        switch (reqType) {
-            case HTTP_TYPE_GET:
-                curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
-                break;
-            case HTTP_TYPE_PUT:
-                curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
-                break;
-            case HTTP_TYPE_HEAD:
-                curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
-                break;
-            case HTTP_TYPE_POST:
-                // curl treats POST uploads with great deal of special care,
-                // which might be somewhat justified, but...
-                curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
-                curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "POST");
-            default:
-                break;
-        }
+    // If doOutput is set, then treat requests as PUT.
+    // Otherwise if asked for HEAD and doInput is not set, treat them as HEAD.
+    // Otherwise treat them  as GET.
+    // Treating all requests with doInput == false as HEAD is very bad idea,
+    // because it will result in botched retries because of Keep-Alive
+    // Never treat requests as POST, because POST handling in curl
+    // is kind of hot garbage
+    if (doOutput) {
+        curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
+    } else if (reqType == HTTP_TYPE_HEAD && !doInput) {
+        curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
     } else {
-        // If doOutput is set, then treat custom requests are  as POST
-        // Else if doInput is not set, treat them are  as HEAD
-        // Otherwise treat them  as GET
-        if (doOutput) {
-            curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);
-        } else if (!doInput) {
-            curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
-        } else {
-            curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+        curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+    }
+
+    switch (reqType) {
+        case HTTP_TYPE_GET:
+            curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
+            break;
+        case HTTP_TYPE_PUT:
+            curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
+            break;
+        case HTTP_TYPE_HEAD:
+            curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "HEAD");
+            break;
+        case HTTP_TYPE_POST:
+            curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "POST");
+            break;
+        default: {
+            jint strLength = (*env)->GetStringLength(env, method);
+
+            char reqMethodChars[strLength + 1];
+
+            asciiDecode(env, method, reqMethodChars, strLength);
+
+            reqMethodChars[strLength] = '\0';
+
+            curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, reqMethodChars);
+
+            break;
         }
-
-        jint strLength = (*env) -> GetStringLength(env, method);
-
-        char reqMethodChars[strLength + 1];
-
-        asciiDecode(env, method, reqMethodChars, strLength);
-
-        reqMethodChars[strLength] = '\0';
-
-        curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, reqMethodChars);
     }
 
     if (doOutput && fixedLength) {
@@ -1548,6 +1546,8 @@ static jobjectArray getResponseHeaders(struct curl_data* ctrl, JNIEnv *env) {
                     goto cleanup;
                 }
 
+                LOG("Setting element at %d", hdrPos);
+
                 (*env) -> SetObjectArrayElement(env, strArray, hdrPos++, strHdrValue);
 
                 hdrValues = hdrValues->ref;
@@ -1610,6 +1610,8 @@ static jobjectArray getRequestHeaders(struct curl_data* ctrl, JNIEnv *env) {
         if (entry == NULL) {
             break;
         }
+
+        LOG("%s", entry->data);
 
         size_t entryLen = strlen(entry->data);
         size_t keyLen;
@@ -1842,9 +1844,12 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_setHeader(JNIEnv *env, jclass typ
     for (p = 0; p < kLen; ++p) {
         localBuffer[p] = (unsigned char) key[p];
     }
-    localBuffer[p] = ':';
 
     (*env)->ReleaseStringCritical(env, key_, key);
+
+    char sep = (char) (valLen == 0 ? ';' : ':');
+
+    localBuffer[p++] = sep;
 
     char** newHeader = NULL;
 
@@ -1878,8 +1883,8 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_setHeader(JNIEnv *env, jclass typ
         nextHdr = lastHdr->next;
     }
 
-    if (value_ == NULL) {
-        localBuffer[++p] = '\0';
+    if (valLen < 0) {
+        localBuffer[p] = '\0';
         ctrl->outHeaders = curl_slist_append(ctrl->outHeaders, localBuffer);
         goto enough;
     }
@@ -1899,20 +1904,23 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_setHeader(JNIEnv *env, jclass typ
 
         ctrl->outHeaderCount++;
     }
+
 insert:
-    localBuffer[p++] = ':';
+    if (valLen != 0) {
+        const jchar *value = (*env)->GetStringCritical(env, value_, NULL);
 
-    const jchar *value = (*env)->GetStringCritical(env, value_, NULL);
+        for (int i = 0; p < kLen + 1 + valLen; ++p, ++i) {
+            localBuffer[p] = (unsigned char) value[i];
+        }
 
-    for (int i = 0; p < kLen + 1 + valLen; ++p, ++i) {
-        localBuffer[p] = (unsigned char) value[i];
+        (*env)->ReleaseStringCritical(env, value_, value);
     }
-    localBuffer[p] = '\0';
 
-    (*env)->ReleaseStringCritical(env, value_, value);
+    localBuffer[p] = '\0';
 
     *newHeader = localBuffer;
     hasToFree = false;
+
 enough:
     if (hasToFree) {
         free(localBuffer);
@@ -1954,7 +1962,7 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_addHeader(JNIEnv *env, jclass typ
         localBuffer[p] = (unsigned char) key[p];
     }
 
-    localBuffer[p++] = ':';
+    localBuffer[p++] = (char) (valLen == 0 ? ';' : ':');
 
     for (int i = 0; p < kLen + 1 + valLen; ++p, ++i) {
         localBuffer[p] = (unsigned char) value[i];
