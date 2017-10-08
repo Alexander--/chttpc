@@ -6,7 +6,10 @@ import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
 
+import com.google.common.truth.Truth;
+
 import net.sf.chttpc.test.BaseTestSuite;
+import net.sf.chttpc.test.Streams;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -24,8 +27,8 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.SocketPolicy;
 import okio.Buffer;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static com.google.common.truth.Truth.assertAbout;
+import static net.sf.chttpc.test.Streams.inputStream;
 
 @RunWith(AndroidJUnit4.class)
 public class SocketRetrievalTests extends BaseTestSuite {
@@ -87,7 +90,8 @@ public class SocketRetrievalTests extends BaseTestSuite {
 
                     Os.lseek(inFd.getFileDescriptor(), 0, OsConstants.SEEK_SET);
 
-                    assertTrue(isEqual(inputStream, server.takeRequest().getBody().inputStream()));
+                    assertAbout(inputStream()).that(inputStream)
+                            .hasSameContentsAs(server.takeRequest().getBody().inputStream());
                 }
             }
         } finally {

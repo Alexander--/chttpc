@@ -4,12 +4,12 @@ import com.carrotsearch.hppc.AbstractIterator;
 
 import java.util.AbstractMap;
 import java.util.AbstractSet;
+import java.util.Arrays;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-final class HeaderMap extends AbstractMap<String, List<String>> {
+final class HeaderMap extends AbstractMap<String, HeaderPair> {
     private final HdrMap container;
 
     private HeaderMap(HdrMap container) {
@@ -20,7 +20,34 @@ final class HeaderMap extends AbstractMap<String, List<String>> {
         return new HeaderMap(new HdrMap(size));
     }
 
-    void justPut(String key, List<String> value) {
+    void append(String key, String value) {
+        HeaderPair pair = get(key);
+
+        if (pair == null) {
+            container.append(key, new HeaderPair(key, value));
+        } else {
+            pair.append(value);
+        }
+    }
+
+    void append(String key, String[] array, int from, int to) {
+        int length = to - from;
+
+        HeaderPair value;
+
+        if (length == 1) {
+            value = new HeaderPair(key, array[from]);
+        } else {
+            if (array.length > 80) {
+                // that's some serious outlier, let's avoid wasting memory...
+                array = Arrays.copyOfRange(array, from, to);
+                from = 0;
+                to = length;
+            }
+
+            value = new HeaderPair(key, array, from, to);
+        }
+
         container.append(key, value);
     }
 
@@ -30,7 +57,7 @@ final class HeaderMap extends AbstractMap<String, List<String>> {
     }
 
     @Override
-    public List<String> get(Object key) {
+    public HeaderPair get(Object key) {
         return container.get((String) key);
     }
 
@@ -39,54 +66,37 @@ final class HeaderMap extends AbstractMap<String, List<String>> {
         return container.containsKey((String) key);
     }
 
-    @Override
-    public boolean containsValue(Object value) {
-        if (value == null) return false;
-
-        final Object[] tab = container.values;
-
-        for (Object v : tab) {
-            if (v != null && v.equals(value)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private Set<Entry<String, List<String>>> entrySet;
+    private Set<Entry<String, HeaderPair>> entrySet;
 
     @Override
-    public Set<Entry<String, List<String>>> entrySet() {
+    public Set<Entry<String, HeaderPair>> entrySet() {
         if (entrySet != null) {
             return entrySet;
         }
 
-        return entrySet = new AbstractSet<Entry<String, List<String>>>() {
+        return entrySet = new AbstractSet<Entry<String, HeaderPair>>() {
             @Override
-            public Iterator<Entry<String, List<String>>> iterator() {
-                return new AbstractIterator<Entry<String, List<String>>>() {
+            public Iterator<Entry<String, HeaderPair>> iterator() {
+                return new AbstractIterator<Entry<String, HeaderPair>>() {
                     int pos = -1;
 
                     @Override
-                    protected Entry<String, List<String>> fetch() {
-                        Object[] keys = container.keys;
+                    protected Entry<String, HeaderPair> fetch() {
+                        Object[] keys = container.values;
 
-                        String key = null;
+                        HeaderPair value = null;
 
-                        while (key == null) {
+                        while (value == null) {
                             ++pos;
 
                             if (pos == keys.length) {
                                 return done();
                             }
 
-                            key = (String) container.keys[pos];
+                            value = (HeaderPair) container.values[pos];
                         }
 
-                        List<String> value = container.indexGet(pos);
-
-                        return new SimpleImmutableEntry<>(key, value);
+                        return value;
                     }
                 };
             }

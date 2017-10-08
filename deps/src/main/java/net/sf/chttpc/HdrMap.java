@@ -3,15 +3,12 @@ package net.sf.chttpc;
 import com.carrotsearch.hppc.BitMixer;
 import com.carrotsearch.hppc.ObjectObjectHashMap;
 
-import java.io.File;
-import java.util.List;
-
-final class HdrMap extends ObjectObjectHashMap<String, List<String>> {
+final class HdrMap extends ObjectObjectHashMap<String, HeaderPair> {
     HdrMap(int size) {
         super(size);
     }
 
-    void append(String key, List<String> value) {
+    void append(String key, HeaderPair value) {
         put(key, value);
     }
 
@@ -50,7 +47,7 @@ final class HdrMap extends ObjectObjectHashMap<String, List<String>> {
     }
 
     @Override
-    protected void allocateThenInsertThenRehash(int slot, String pendingKey, List<String> pendingValue) {
+    protected void allocateThenInsertThenRehash(int slot, String pendingKey, HeaderPair pendingValue) {
         throw new AssertionError();
     }
 }

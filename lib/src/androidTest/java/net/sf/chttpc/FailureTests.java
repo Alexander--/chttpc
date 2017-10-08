@@ -21,9 +21,6 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.SocketPolicy;
 
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-
 @RunWith(AndroidJUnit4.class)
 public class FailureTests extends BaseTestSuite {
     @BeforeClass

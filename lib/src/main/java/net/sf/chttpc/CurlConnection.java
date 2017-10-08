@@ -146,13 +146,14 @@ public class CurlConnection extends HttpURLConnection {
     @Override
     @AnyThread
     @CheckResult
+    @SuppressWarnings("unchecked")
     public @NonNull Map<String, List<String>> getHeaderFields() {
         assertConnected();
 
         HeaderMap headerMap = this.headerMap;
 
         if (headerMap != null) {
-            return headerMap;
+            return (Map) headerMap;
         }
 
         final String[] cachedHeaders = curl.getResponseHeaders();
@@ -160,8 +161,6 @@ public class CurlConnection extends HttpURLConnection {
         if (cachedHeaders == null || cachedHeaders.length == 0) {
             return Collections.emptyMap();
         }
-
-        final List<String> headerList = Arrays.asList(cachedHeaders);
 
         headerMap = HeaderMap.create(cachedHeaders.length);
 
@@ -177,19 +176,12 @@ public class CurlConnection extends HttpURLConnection {
                 ++j;
             }
 
-            final List<String> headerValues;
-            if (j == i + 2) {
-                headerValues = Collections.singletonList(cachedHeaders[i + 1]);
-            } else {
-                headerValues = headerList.subList(i + 1, j);
-            }
-
-            headerMap.justPut(headerName, headerValues);
+            headerMap.append(headerName, cachedHeaders, i + 1, j);
 
             i = j;
         }
 
-        return this.headerMap = headerMap;
+        return (Map) (this.headerMap = headerMap);
     }
 
     @Override
@@ -400,17 +392,17 @@ public class CurlConnection extends HttpURLConnection {
     }
 
     /**
-     * @deprecated this method always returns {@link InputStream}, of the connection
+     * @return {@link InputStream} of the connection
      */
     @Override
     @Deprecated
-    public Object getContent() throws IOException {
+    public InputStream getContent() throws IOException {
         createInputStream();
         return inputStream;
     }
 
     /**
-     * @deprecated this method always returns {@link InputStream}, of the connection or null
+     * @deprecated this method always returns {@link InputStream}, of the connection or {@code null}
      */
     @Override
     @Deprecated
@@ -494,6 +486,7 @@ public class CurlConnection extends HttpURLConnection {
     @Override
     @AnyThread
     @CheckResult
+    @SuppressWarnings("unchecked")
     public Map<String, List<String>> getRequestProperties() {
         assertNotConnected();
 
@@ -508,29 +501,10 @@ public class CurlConnection extends HttpURLConnection {
         for (int i = 0; i < headerArray.length && headerArray[i] != null; i += 2) {
             final String key = headerArray[i];
             final String value = headerArray[i + 1];
-
-            final List<String> existing = map.get(key);
-
-            ArrayList<String> arrayList = null;
-
-            if (existing == null) {
-                map.justPut(key, Collections.singletonList(value));
-            } else {
-                if (existing.size() == 1) {
-                    arrayList = new ArrayList<>(2);
-                    arrayList.add(existing.get(0));
-                    map.justPut(key, arrayList);
-                } else {
-                    arrayList = (ArrayList<String>) existing;
-                }
-            }
-
-            if (arrayList != null) {
-                arrayList.add(value);
-            }
+            map.append(key, value);
         }
 
-        return map;
+        return (Map) map;
     }
 
     @Override
@@ -546,6 +520,11 @@ public class CurlConnection extends HttpURLConnection {
 
     private String getProxyAddress() {
         return proxy == null || !usingProxy() ? null : proxy.address().toString();
+    }
+
+    @Override
+    public String toString() {
+        return this.getClass().getName() + ":" + curl.getUrl();
     }
 
     public interface Config {

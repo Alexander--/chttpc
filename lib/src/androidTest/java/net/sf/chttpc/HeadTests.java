@@ -4,6 +4,7 @@ import android.support.test.InstrumentationRegistry;
 import android.support.test.runner.AndroidJUnit4;
 
 import net.sf.chttpc.test.BaseTestSuite;
+import net.sf.chttpc.test.EqualsIgnoreCase;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -561,11 +562,56 @@ public class HeadTests extends BaseTestSuite {
             Map<String, List<String>> expectedMap = hdrs.toMultimap();
             Map<String, List<String>> actualMap = conn.getHeaderFields();
 
-            //assertThat(actualMap).hasSize(expectedMap.size());
-
             assertThat(actualMap.entrySet())
                     .comparingElementsUsing(EqualsIgnoreCase.INSTANCE)
                     .containsExactlyElementsIn(expectedMap.entrySet());
+        }
+    }
+
+    @Test
+    public void testRequestHeader() throws Exception {
+        CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+
+        String[] doodleducks = new String[]{
+                "Doodleduck-A", "1X",
+                "Doodleduck-B", "2X",
+                "Doodleduck-C", "3X",
+                "Doodleduck-D", "4X",
+                "Doodleduck-E", "5X",
+                "Doodleduck-A", "2X",
+                "Doodleduck-F", "6X",
+                "Doodleduck-G", "7X",
+                "Doodleduck-H", "8X",
+                "Doodleduck-I", "9X",
+                "Doodleduck-J", "10X",
+                "Doodleduck-K", "11X",
+                "Doodleduck-L", "12X",
+                "Doodleduck-J", "32t24y4",
+                "Doodleduck-M", "",
+                "Doodleduck-J", "wlqr-q3ot4gwmnbwirnb",
+                "Doodleduck-J", "efqg",
+                "Doodleduck-J", "efqg",
+                "Doodleduck-B", "agehehr",
+                "Doodleduck-J", "d",
+        };
+
+        Headers hdrs = Headers.of(doodleducks);
+
+        for (int i = 0; i < doodleducks.length; i += 2) {
+            String header = doodleducks[i];
+            String value = doodleducks[i + 1];
+            conn.addRequestProperty(header, value);
+        }
+
+        Map<String, List<String>> expectedMap = hdrs.toMultimap();
+        Map<String, List<String>> actualMap = conn.getRequestProperties();
+
+        try {
+            assertThat(actualMap.entrySet())
+                    .comparingElementsUsing(EqualsIgnoreCase.INSTANCE)
+                    .containsExactlyElementsIn(expectedMap.entrySet());
+        } catch (Throwable t) {
+            t.printStackTrace();
         }
     }
 
@@ -606,8 +652,6 @@ public class HeadTests extends BaseTestSuite {
 
         Map<String, List<String>> expectedMap = hdrs.toMultimap();
         Map<String, List<String>> actualMap = conn.getRequestProperties();
-
-        //assertThat(actualMap).hasSize(expectedMap.size());
 
         assertThat(actualMap.entrySet())
                 .comparingElementsUsing(EqualsIgnoreCase.INSTANCE)

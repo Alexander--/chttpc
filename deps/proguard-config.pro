@@ -1,5 +1,4 @@
 -dontpreverify
--dontobfuscate
 
 -dontskipnonpubliclibraryclasses
 -dontskipnonpubliclibraryclassmembers
@@ -8,7 +7,8 @@
 
 -keep class net.sf.chttpc.HeaderMap {
     static net.sf.chttpc.HeaderMap create(int);
-    void justPut(java.lang.String, java.util.List);
+    void append(java.lang.String, java.lang.String[], int, int);
+    void append(java.lang.String, java.lang.String);
 }
 
 -repackageclasses net.sf.chttpc

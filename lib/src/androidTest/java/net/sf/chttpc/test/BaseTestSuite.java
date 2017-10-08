@@ -112,23 +112,4 @@ public class BaseTestSuite {
             return result;
         }
     }
-
-    protected boolean isEqual(InputStream is1, InputStream is2) throws IOException {
-        byte[] buf1 = new byte[32 * 1024];
-        byte[] buf2 = new byte[32 * 1024];
-        try {
-            DataInputStream d2 = new DataInputStream(is2);
-            int len;
-            while ((len = is1.read(buf1)) > 0) {
-                d2.readFully(buf2,0,len);
-
-                if (!Arrays.equals(buf1, buf2)) {
-                    return false;
-                }
-            }
-            return d2.read() < 0; // is the end of the second file also.
-        } catch(EOFException ioe) {
-            return false;
-        }
-    }
 }
