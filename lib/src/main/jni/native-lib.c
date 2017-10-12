@@ -162,6 +162,7 @@ static jmethodID threadingCb;
 #define ERROR_PROTOCOL 12
 #define ERROR_ILLEGAL_STATE 13
 #define ERROR_INTERRUPTED 14
+#define ERROR_CLOSED 15
 
 static __attribute__ ((noinline, cold)) void interruption_handler(int signo, siginfo_t* info, void* unused) {
     void* ref = info -> si_value.sival_ptr;
@@ -853,9 +854,10 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_reset(JNIEnv *env, jclass type, j
         curl_multi_remove_handle(ctrl->multi, ctrl->curl);
     }
 
-    ctrl->readOverflow = 0;
     ctrl->maxHeaderLength = 0;
+    ctrl->uploadedCount = 0;
     ctrl->state = 0;
+    ctrl->readOverflow = 0;
 
     releaseHeaders(ctrl);
 
@@ -1099,8 +1101,6 @@ JNIEXPORT jcharArray JNICALL Java_net_sf_chttpc_Curl_nativeConfigure(JNIEnv *env
         curl_easy_setopt(curl, CURLOPT_PROXY, "");
     }
 
-    const char* reqMethodStr;
-
     // If doOutput is set, then treat requests as PUT.
     // Otherwise if asked for HEAD and doInput is not set, treat them as HEAD.
     // Otherwise treat them  as GET.
@@ -1150,7 +1150,6 @@ JNIEXPORT jcharArray JNICALL Java_net_sf_chttpc_Curl_nativeConfigure(JNIEnv *env
         curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t) fixedLength);
 
         ctrl->uploadGoal = (uint64_t) fixedLength;
-        ctrl->uploadedCount = 0;
     } else {
         SET_DO_NO_OUTPUT(ctrl);
 
@@ -1198,10 +1197,16 @@ JNIEXPORT jcharArray JNICALL Java_net_sf_chttpc_Curl_nativeConfigure(JNIEnv *env
 
     if (doInput) {
         SET_DO_INPUT(ctrl);
+
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &write_callback);
     } else {
         SET_DO_NO_INPUT(ctrl);
 
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, doOutput ? &skip_receive_callback : &abort_receive_callback);
+    }
+
+    if (doOutput) {
+        curl_easy_setopt(curl, CURLOPT_READFUNCTION, &read_callback);
     }
 
     if (!(ctrl->state & STATE_ATTACHED)) {
@@ -1242,10 +1247,6 @@ JNIEXPORT jcharArray JNICALL Java_net_sf_chttpc_Curl_nativeConfigure(JNIEnv *env
 
     if (*ctrl->interrupted) {
         throwInterruptedException(ctrl, 0);
-    }
-
-    if (doInput) {
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &write_callback);
     }
 
     if (followRedirects) {
@@ -1379,6 +1380,12 @@ JNIEXPORT jint JNICALL Java_net_sf_chttpc_Curl_write(JNIEnv *env, jclass type, j
 
     if (!ACQUIRE(ctrl->busy)) {
         throwThreadingException(env);
+        return -1;
+    }
+
+    uint64_t goal = ctrl->uploadGoal;
+    if (goal && ctrl->uploadedCount >= goal) {
+        throwOther(env, "", ERROR_CLOSED);
         return -1;
     }
 
@@ -2022,7 +2029,7 @@ JNIEXPORT jstring JNICALL Java_net_sf_chttpc_Curl_outHeader(JNIEnv *env, jclass 
     struct curl_slist* next = ctrl->outHeaders;
 
     do {
-        if (!strncasecmp(localBuffer, next->data, i) && next->data[kLen] == ':') {
+        if (!strncasecmp(localBuffer, next->data, i) && (next->data[kLen] == ':' || next->data[kLen] == ';')) {
             result = (*env) ->NewStringUTF(env, next->data + kLen + 1);
             break;
         }

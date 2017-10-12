@@ -22,7 +22,6 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
 
 import static com.google.common.truth.Truth.assertThat;
-import static com.google.common.truth.Truth.assertWithMessage;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
@@ -604,14 +603,9 @@ public class HeadTests extends BaseTestSuite {
         }
 
         Map<String, List<String>> expectedMap = hdrs.toMultimap();
-        Map<String, List<String>> actualMap = conn.getRequestProperties();
 
-        try {
-            assertThat(actualMap.entrySet())
-                    .comparingElementsUsing(EqualsIgnoreCase.INSTANCE)
-                    .containsExactlyElementsIn(expectedMap.entrySet());
-        } catch (Throwable t) {
-            t.printStackTrace();
+        for (String hdrName : hdrs.names()) {
+            assertThat(conn.getRequestProperty(hdrName)).isEqualTo(expectedMap.get(hdrName).get(0));
         }
     }
 

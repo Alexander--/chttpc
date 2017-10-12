@@ -18,8 +18,6 @@ import java.net.ProtocolException;
 import java.net.Proxy;
 import java.net.URL;
 import java.sql.Date;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;

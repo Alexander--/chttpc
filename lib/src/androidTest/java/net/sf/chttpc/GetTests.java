@@ -2,10 +2,7 @@ package net.sf.chttpc;
 
 import android.support.test.runner.AndroidJUnit4;
 
-import com.google.common.truth.Truth;
-
 import net.sf.chttpc.test.BaseTestSuite;
-import net.sf.chttpc.test.Streams;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -32,7 +29,6 @@ import okio.Buffer;
 import static com.google.common.truth.Truth.assertAbout;
 import static net.sf.chttpc.test.Streams.inputStream;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
 public class GetTests extends BaseTestSuite {
@@ -311,7 +307,7 @@ public class GetTests extends BaseTestSuite {
 
             conn.setUrlString(server.url("/").toString());
 
-            assertAbout(inputStream()).that(body.inputStream()).hasSameContentsAs(conn.getInputStream());
+            assertAbout(inputStream()).that(conn.getInputStream()).hasSameContentsAs(body.inputStream());
         } finally {
             f.delete();
         }

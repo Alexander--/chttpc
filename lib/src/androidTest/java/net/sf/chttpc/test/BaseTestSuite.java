@@ -10,6 +10,7 @@ import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.ref.Reference;
 import java.lang.ref.ReferenceQueue;
 import java.net.Proxy;
@@ -23,6 +24,9 @@ import javax.net.ssl.SSLSocketFactory;
 import okio.Buffer;
 
 public class BaseTestSuite {
+    // minimal heap size is 16MB, so...
+    protected static final int HUGE_BUFFER = 10 * 1024 * 1024;
+
     static {
         System.setProperty(CurlHttp.DEBUG, "true");
     }
@@ -111,5 +115,9 @@ public class BaseTestSuite {
 
             return result;
         }
+    }
+
+    protected void populateFromRandom(OutputStream outputStream) throws IOException {
+        new Buffer().readFrom(random, HUGE_BUFFER).writeTo(outputStream);
     }
 }

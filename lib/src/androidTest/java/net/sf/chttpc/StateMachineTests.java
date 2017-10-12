@@ -2,6 +2,8 @@ package net.sf.chttpc;
 
 import android.support.test.runner.AndroidJUnit4;
 
+import com.google.common.truth.Truth;
+
 import net.sf.chttpc.test.BaseTestSuite;
 
 import org.junit.AfterClass;
@@ -9,11 +11,16 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.io.Closeable;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
+import okio.Okio;
 
+import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -110,6 +117,88 @@ public class StateMachineTests extends BaseTestSuite {
         }
     }
 
+    @Test(expected = IOException.class)
+    public void errorWhenReadingFromClosedInput() throws IOException {
+        try (MockWebServer server = new MockWebServer()) {
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+
+            conn.setUrlString(server.url("/").toString());
+
+            server.enqueue(new MockResponse()
+                    .setBody("Hi!")
+                    .setResponseCode(200));
+
+            InputStream is = conn.getInputStream();
+
+            is.close();
+
+            is.read();
+        }
+    }
+
+    @Test(expected = IOException.class)
+    public void errorWhenWritingToClosedOutput() throws IOException {
+        try (MockWebServer server = new MockWebServer()) {
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+
+            conn.setUrlString(server.url("/").toString());
+
+            server.enqueue(new MockResponse()
+                    .setBody("Hi!")
+                    .setResponseCode(200));
+
+            conn.setDoOutput(true);
+            conn.setFixedLengthStreamingMode(1);
+
+            OutputStream os = conn.getOutputStream();
+
+            os.close();
+
+            os.write(1);
+        }
+    }
+
+    @Test
+    public void errorInputCloseIdempotent() throws IOException {
+        try (MockWebServer server = new MockWebServer()) {
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+
+            conn.setUrlString(server.url("/").toString());
+
+            server.enqueue(new MockResponse()
+                    .setBody("Hi!")
+                    .setResponseCode(200));
+
+            InputStream is = conn.getInputStream();
+
+            is.close();
+            is.close();
+            is.close();
+        }
+    }
+
+    @Test
+    public void errorOutputCloseIdempotent() throws IOException {
+        try (MockWebServer server = new MockWebServer()) {
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+
+            conn.setUrlString(server.url("/").toString());
+
+            server.enqueue(new MockResponse()
+                    .setBody("Hi!")
+                    .setResponseCode(200));
+
+            conn.setDoOutput(true);
+            conn.setFixedLengthStreamingMode(1);
+
+            OutputStream os = conn.getOutputStream();
+
+            os.close();
+            os.close();
+            os.close();
+        }
+    }
+
     @Test
     public void testErrorInputWhenDoInputIsNotSet() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
@@ -200,6 +289,54 @@ public class StateMachineTests extends BaseTestSuite {
             conn.connect();
 
             assertNull(server.takeRequest().getHeader("testtest"));
+        }
+    }
+
+    @Test
+    public void streamsReusableAfterReset() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse()
+                    .setResponseCode(297)
+                    .setBody("1"));
+
+            server.enqueue(new MockResponse()
+                    .setResponseCode(298)
+                    .setBody("2"));
+
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            conn.setUrlString(server.url("/").toString());
+            conn.setDoInput(true);
+            conn.setDoOutput(true);
+            conn.setInstanceFollowRedirects(true);
+
+            InputStream is1;
+            OutputStream os1;
+
+            try (Closeable c2 = os1 = conn.getOutputStream()) {
+                os1.write(3);
+            }
+
+            try (Closeable c1 = is1 = conn.getInputStream()) {
+                assertEquals("1", Okio.buffer(Okio.source(is1)).readUtf8());
+            }
+
+            conn.reset();
+
+            InputStream is2;
+            OutputStream os2;
+
+            try (Closeable c2 = os2 = conn.getOutputStream()) {
+                os2.write(4);
+            }
+
+            try (Closeable c1 = is2 = conn.getInputStream()) {
+                assertEquals("2", Okio.buffer(Okio.source(is2)).readUtf8());
+            }
+
+            conn.reset();
+
+            assertThat(is1).isNotSameAs(is2);
+            assertThat(os1).isNotSameAs(os2);
         }
     }
 }

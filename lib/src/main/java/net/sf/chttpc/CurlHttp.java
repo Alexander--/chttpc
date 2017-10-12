@@ -103,6 +103,10 @@ public class CurlHttp {
             flags |= FLAG_ENABLE_DEBUG;
         }
 
+        return create(refQueue, flags);
+    }
+
+    protected static CurlHttp create(@NonNull ReferenceQueue<Object> refQueue, int flags) {
         final CurlHttp curl = new CurlHttp(new MutableUrl(), flags);
 
         CleanerRef.create(curl, curl.curlPtr, refQueue);

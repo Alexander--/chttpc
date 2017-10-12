@@ -32,9 +32,6 @@ import static net.sf.chttpc.test.Streams.inputStream;
 
 @RunWith(AndroidJUnit4.class)
 public class SocketRetrievalTests extends BaseTestSuite {
-    // minimal heap size is 16MB, so...
-    private static final int HUGE_BUFFER = 10 * 1024 * 1024;
-
     @BeforeClass
     public static void setupCleaner() throws Exception {
         baseSetup();
@@ -98,9 +95,5 @@ public class SocketRetrievalTests extends BaseTestSuite {
             //noinspection ResultOfMethodCallIgnored
             f.delete();
         }
-    }
-
-    private void populateFromRandom(OutputStream outputStream) throws IOException {
-        new Buffer().readFrom(random, HUGE_BUFFER).writeTo(outputStream);
     }
 }

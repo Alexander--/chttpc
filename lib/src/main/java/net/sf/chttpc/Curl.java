@@ -17,7 +17,6 @@ import android.support.annotation.RequiresPermission;
 import net.sf.xfd.UsedByJni;
 
 import java.io.IOException;
-import java.io.InterruptedIOException;
 import java.lang.ref.ReferenceQueue;
 import java.net.BindException;
 import java.net.ConnectException;
@@ -331,6 +330,7 @@ public final class Curl {
     private static final int ERROR_PROTOCOL = 12;
     private static final int ERROR_ILLEGAL_STATE = 13;
     private static final int ERROR_INTERRUPTED = 14;
+    private static final int ERROR_CLOSED = 15;
 
     @UsedByJni
     @SuppressWarnings("unused")
@@ -356,8 +356,8 @@ public final class Curl {
                 throw new IllegalStateException(message);
             case ERROR_OOM:
                 throw new OutOfMemoryError();
-            case ERROR_INTERRUPTED:
-                throwInterrupted(arg);
+            case ERROR_CLOSED:
+                throw new IOException("Already closed");
             case ERROR_SOCKET_CONNECT_TIMEOUT:
                 throw new SocketTimeoutException("Socket connect timeout reached");
             case ERROR_SOCKET_READ_TIMEOUT:
@@ -374,16 +374,6 @@ public final class Curl {
                         "Retry manually.",
                         arg);
         }
-    }
-
-    private static void throwInterrupted(int arg) throws InterruptedIOException {
-        Thread.interrupted();
-
-        final InterruptedIOException ioe = new InterruptedIOException();
-
-        ioe.bytesTransferred = arg;
-
-        throw ioe;
     }
 
     static native void nativeInit();
