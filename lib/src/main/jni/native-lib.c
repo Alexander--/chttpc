@@ -98,7 +98,7 @@ const static int candidate_signals[] = { SIGWINCH, SIGTTIN, SIGTTOU };
 
 #define ARRAY_SIZE(x) (sizeof(x)/sizeof((x)[0]))
 
-#if 1//CHTTPC_DEBUG
+#if CHTTPC_DEBUG
 #define LOG(...) ((void) __android_log_print(ANDROID_LOG_DEBUG, "chttpc", __VA_ARGS__))
 #else
 #define LOG(...) {}
@@ -163,6 +163,8 @@ static jmethodID threadingCb;
 #define ERROR_ILLEGAL_STATE 13
 #define ERROR_INTERRUPTED 14
 #define ERROR_CLOSED 15
+
+#define HEADER_BUF_SIZE_DEFAULT 20u
 
 static __attribute__ ((noinline, cold)) void interruption_handler(int signo, siginfo_t* info, void* unused) {
     void* ref = info -> si_value.sival_ptr;
@@ -772,8 +774,19 @@ static inline bool hashKeyCompare(void* a, void* b) {
 JNIEXPORT jlong JNICALL Java_net_sf_chttpc_Curl_nativeCreate(JNIEnv *env, jclass type, jint flags) {
     struct curl_data* ctrl = memalign(64u, sizeof(*ctrl));
 
+    void **headerPairs = malloc(HEADER_BUF_SIZE_DEFAULT * sizeof(char*) * 2);
+
+    Hashmap* headers = hashmapCreate(HEADER_BUF_SIZE_DEFAULT, &hashCalc, &hashKeyCompare);
+
     CURL* curl = curl_easy_init();
     CURLM* multi = curl_multi_init();
+
+    if (ctrl == NULL || headerPairs == NULL || headers == NULL || curl == NULL || multi == NULL) {
+        oomThrow(env);
+        return 0;
+    }
+
+    memset(ctrl, 0, sizeof(struct curl_data));
 
     // we are managing our own timeouts
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, LONG_MAX);
@@ -821,23 +834,10 @@ JNIEXPORT jlong JNICALL Java_net_sf_chttpc_Curl_nativeCreate(JNIEnv *env, jclass
     ctrl->curl = curl;
     ctrl->multi = multi;
 
-    ctrl->outHeaders = NULL;
-    ctrl->readOverflow = 0;
-    ctrl->state = 0;
-    ctrl->headerPairCount = 0;
-    ctrl->outHeaderCount = 0;
-    ctrl->maxHeaderLength = 0;
-    ctrl->headerBufSize = 20u;
+    ctrl->headers = headers;
+    ctrl->headerPairs = headerPairs;
 
-    ctrl->busy = 0;
-
-    ctrl->headerPairs = malloc(ctrl->headerBufSize * sizeof(char*) * 2);
-    ctrl->headers = hashmapCreate(20u, &hashCalc, &hashKeyCompare);
-
-    if (ctrl->headers == NULL || ctrl->headerPairs == NULL) {
-        oomThrow(env);
-        return 0;
-    }
+    ctrl->headerBufSize = HEADER_BUF_SIZE_DEFAULT;
 
     return (jlong) (intptr_t) ctrl;
 }
