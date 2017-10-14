@@ -37,6 +37,7 @@ android {
 
 dependencies {
     compile project(':lib')
+    compile project(':deps')
 
     compile 'net.sf.fakenames:tileview:0.3'
 

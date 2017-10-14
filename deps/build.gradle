@@ -61,6 +61,14 @@ task depsProguard(type: ProGuardTask, dependsOn: tasks.shadowJar) {
     dontskipnonpubliclibraryclassmembers()
 }
 
+configurations {
+    deps
+}
+
+artifacts.add('deps', file("$buildDir/libs/deps.jar")) {
+    it.builtBy tasks.depsProguard
+}
+
 dependencies {
     compile 'com.carrotsearch:hppc:0.7.2'
 }

@@ -53,7 +53,7 @@ public final class BitmapProviderPicasso implements BitmapProvider {
             final int rowNum = worldSize - 1 - tile.getRow();
             final int colNum = tile.getColumn();
 
-            Log.v(TAG, "" + rowNum + ' ' + colNum + ' ' + zLevel.getZ());
+            //Log.v(TAG, "" + rowNum + ' ' + colNum + ' ' + zLevel.getZ());
 
             if (rowNum < 0 || rowNum >= worldSize || colNum < 0 || colNum >= worldSize) {
                 return recycler.placeholder();
@@ -103,11 +103,11 @@ public final class BitmapProviderPicasso implements BitmapProvider {
 
             opts.inBitmap = recycled;
 
-            Log.v(TAG, "Starting decoding  for " + rowNum + ' ' + colNum + ' ' + zLevel.getZ());
+            //Log.v(TAG, "Starting decoding  for " + rowNum + ' ' + colNum + ' ' + zLevel.getZ());
 
             bitmap = BitmapFactory.decodeStream(locals.stream, null, opts);
 
-            Log.v(TAG, "Completed " + rowNum + ' ' + colNum + ' ' + zLevel.getZ());
+            //Log.v(TAG, "Completed " + rowNum + ' ' + colNum + ' ' + zLevel.getZ());
 
             if (bitmap != null && !thread.isInterrupted()) {
                 if (recycled == bitmap) {
