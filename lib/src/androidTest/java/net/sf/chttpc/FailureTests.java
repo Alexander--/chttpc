@@ -14,12 +14,16 @@ import java.net.MalformedURLException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 import javax.net.ssl.SSLException;
 
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.SocketPolicy;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 
 @RunWith(AndroidJUnit4.class)
 public class FailureTests extends BaseTestSuite {
@@ -88,6 +92,19 @@ public class FailureTests extends BaseTestSuite {
             conn.setDoInput(false);
 
             conn.getInputStream();
+        }
+    }
+
+    @Test(expected = Exception.class)
+    public void testOutputWhenDoOutputIsNotSet() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().setResponseCode(200));
+
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            conn.setUrlString(server.url("/").toString());
+            conn.setDoOutput(false);
+
+            conn.getOutputStream();
         }
     }
 
