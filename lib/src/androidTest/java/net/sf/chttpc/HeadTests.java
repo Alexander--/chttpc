@@ -58,6 +58,21 @@ public class HeadTests extends BaseTestSuite {
     }
 
     @Test
+    public void testNotEvenHttp() throws Exception {
+        try (MockWebServer server = new MockWebServer()) {
+            server.enqueue(new MockResponse().setStatus("WUHAHAHA"));
+
+            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+
+            conn.setRequestMethod("HEAD");
+            conn.setUrlString(server.url("/").toString());
+
+            assertEquals(-1, conn.getResponseCode());
+            assertNull(conn.getResponseMessage());
+        }
+    }
+
+    @Test
     public void testHeadWithFactory() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse()
