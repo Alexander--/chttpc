@@ -1,5 +1,7 @@
 -dontpreverify
 
+-verbose
+
 -dontskipnonpubliclibraryclasses
 -dontskipnonpubliclibraryclassmembers
 

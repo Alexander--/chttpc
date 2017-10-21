@@ -32,13 +32,14 @@ idea {
 shadowJar {
     exclude 'META-INF/**/pom.xml'
     exclude 'META-INF/**/pom.properties'
-    relocate '*', 'net.sf.chttpc'
 }
 
-task depsProguard(type: ProGuardTask, dependsOn: tasks.shadowJar) {
-    injars files(tasks.shadowJar.outputs)
-    libraryjars files("${System.getProperty('java.home')}/lib/rt.jar")
-    outjars file("$buildDir/libs/deps.jar")
+task depsProguard(type: ProGuardTask) {
+    dependsOn 'shadowJar'
+
+    injars tasks.shadowJar.outputs
+    libraryjars "${System.getProperty('java.home')}/lib/rt.jar"
+    outjars file("$buildDir/libs/deps-proguard.jar")
 
     configuration files('proguard-config.pro', 'assumenosideeffects.pro')
 
@@ -48,7 +49,6 @@ task depsProguard(type: ProGuardTask, dependsOn: tasks.shadowJar) {
     classobfuscationdictionary file('dict.txt')
 
     inputs.files('dict.txt', 'proguard-config.pro', 'assumenosideeffects.pro')
-    outputs.file("$buildDir/libs/deps.jar")
 
     printusage file("$buildDir/usage.txt")
     printseeds file("$buildDir/seeds.txt")
@@ -65,7 +65,7 @@ configurations {
     deps
 }
 
-artifacts.add('deps', file("$buildDir/libs/deps.jar")) {
+artifacts.add('deps', file("$buildDir/libs/deps-proguard.jar")) {
     it.builtBy tasks.depsProguard
 }
 

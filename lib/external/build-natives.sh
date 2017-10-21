@@ -39,6 +39,8 @@ export LDFLAGS="$LDFLAGS $CFLAGS"
 
 autoreconf -fvi
 
+chmod +x configure
+
 ./configure \
     --host=$A2_COMPILER \
     --enable-static --disable-shared \
