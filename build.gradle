@@ -7,6 +7,19 @@ buildscript {
         classpath 'com.android.tools.build:gradle:2.3.3'
         classpath 'com.github.jengelman.gradle.plugins:shadow:2.0.1'
         classpath 'net.sf.proguard:proguard-gradle:5.3.2'
+        classpath 'com.jfrog.bintray.gradle:gradle-bintray-plugin:1.7'
+    }
+    configurations.classpath {
+        resolutionStrategy {
+            failOnVersionConflict()
+
+            force 'com.google.guava:guava:18.0'
+            force 'org.codehaus.plexus:plexus-utils:1.5.15'
+            force 'com.android.tools:annotations:25.3.3'
+            force 'org.apache.httpcomponents:httpclient:4.2.1'
+            force 'org.apache.httpcomponents:httpcore:4.2.1'
+            force 'commons-lang:commons-lang:2.4'
+        }
     }
 }
 
@@ -19,6 +32,20 @@ allprojects {
         maven {
             url 'https://dl.bintray.com/alexanderr/maven'
         }
+    }
+    configurations.all {
+        resolutionStrategy {
+            failOnVersionConflict()
+
+            force 'com.google.guava:guava:18.0'
+            force 'com.android.support:appcompat-v7:25.1.0'
+        }
+    }
+}
+
+subprojects {
+    ext {
+        uploadInitiated = gradle.startParameter.taskNames.contains('bintrayUpload')
     }
 }
 

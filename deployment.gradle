@@ -1,0 +1,93 @@
+def packageDesc = 'Implementation of HttpURLConnection, that aims for low GC overhead'
+def packageSite = 'https://github.com/Alexander--/chttpc'
+def mainLic = 'Apache-2.0'
+def libVcs = 'https://github.com/Alexander--/chttpc'
+def libVer = '0.2'
+
+def props = new Properties()
+
+def propFile
+def propName = project.properties.deploymentConfig
+if(propName && (propFile = file(propName)).exists()) {
+    new FileInputStream(propFile).withStream { InputStream is ->
+        props.load(is)
+    }
+}
+
+if (props) {
+    task androidSourcesJar(type: Jar) {
+        classifier = 'sources'
+        from android.sourceSets.main.java.srcDirs
+    }
+
+    apply plugin: 'maven-publish'
+    apply plugin: 'com.jfrog.bintray'
+
+    def pomXmlContents = new XmlParser().parseText """
+        <dependencies>
+            <dependency>
+                <groupId>com.android.support</groupId>
+                <artifactId>support-annotations</artifactId>
+                <version>25.1.0</version>
+                <scope>compile</scope>
+                <optional>false</optional>
+            </dependency>
+            <dependency>
+                <groupId>net.sf.xfd</groupId>
+                <artifactId>i10n</artifactId>
+                <version>0.3.1</version>
+                <scope>compile</scope>
+                <optional>false</optional>
+            </dependency>
+        </dependencies>
+    """
+
+    publishing {
+        publications {
+            chttpc(MavenPublication) {
+                artifact ([
+                        source: file("$rootProject.projectDir/release-compressed.aar"),
+                        extension: 'aar',
+                ])
+                artifact androidSourcesJar
+
+                groupId 'net.sf.chttpc'
+                artifactId 'chttpc'
+                version libVer
+
+                pom.withXml { provider ->
+                    provider.asNode().append(pomXmlContents)
+                }
+            }
+        }
+    }
+
+    bintray {
+        user = props['bintrayUser']
+        key = props['bintrayKey']
+        publications = ['chttpc']
+
+        pkg {
+            repo = 'maven'
+            name = 'chttpc'
+            desc = packageDesc
+            websiteUrl = packageSite
+            issueTrackerUrl = 'https://github.com/Alexander--/chttpc/issues'
+            vcsUrl = libVcs
+            licenses = [mainLic]
+            labels = ['android', 'http']
+            publicDownloadNumbers = true
+
+            githubRepo = 'Alexander--/chttpc'
+
+            version {
+                name = libVer
+                vcsTag = "${name}"
+            }
+
+            publish = false
+        }
+    }
+
+    tasks.bintrayUpload.dependsOn tasks.prepareRelease
+}

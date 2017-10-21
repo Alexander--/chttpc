@@ -64,15 +64,28 @@ task jacocoTestReport(type: JacocoReport, dependsOn: 'createDebugCoverageReport'
     classDirectories = files('build/intermediates/classes/debug')
 }
 
+task prepareRelease(type: Exec) {
+    dependsOn 'assembleRelease'
+
+    commandLine "$rootProject.projectDir/repack.sh"
+    workingDir rootProject.projectDir
+
+    inputs.file "$rootProject.projectDir/repack.sh"
+    outputs.file "$rootProject.projectDir/release-compressed.aar"
+}
+
 repositories {
     maven {
         url "https://oss.sonatype.org/content/repositories/snapshots"
     }
 }
 
+if (project.hasProperty('deploymentConfig')) {
+    apply from: file("$rootProject.projectDir/deployment.gradle")
+}
+
 dependencies {
     compile 'net.sf.xfd:i10n:0.3.1'
-
     compile 'com.android.support:support-annotations:25.1.0'
 
     compile project(path: ':deps', configuration: 'deps')

@@ -47,7 +47,7 @@ dependencies {
 
     compile 'com.android.support:appcompat-v7:25.1.0'
 
-    compile 'com.carrotsearch:hppc:0.7.1'
+    compile 'com.carrotsearch:hppc:0.7.2'
 
     testCompile 'junit:junit:4.12'
 }
