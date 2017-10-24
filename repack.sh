@@ -23,9 +23,9 @@ find . -type f | sort | faketime -f "$STARTDATE" fastjar -@c0M > ../classes.jar
 popd
 rm -r classes-repacked/
 
-unzip -o ../deps/build/libs/deps.jar -d libs-repacked
+unzip -o ../deps/build/libs/deps-proguard.jar -d libs-repacked
 pushd libs-repacked
-find . -type f | sort | faketime -f "$STARTDATE" fastjar -@c0M > ../libs/libs.jar
+find . -type f | sort | faketime -f "$STARTDATE" fastjar -@c0M > ../libs/deps.jar
 popd
 rm -r libs-repacked/
 
