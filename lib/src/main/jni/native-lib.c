@@ -1515,7 +1515,7 @@ static jobjectArray getResponseHeaders(struct curl_data* ctrl, JNIEnv *env) {
     }
 
     if (ctrl->headerPairCount > 5) {
-        // at this rate we might run out of local references to store headers
+        // at this rate we might run out of local references to store headers;
         // rather than wasting CPU time on calls to DeleteGlobalRef, let's batch
         localFrameRes = (*env) -> PushLocalFrame(env, ctrl->headerPairCount + 1);
         if (localFrameRes) {

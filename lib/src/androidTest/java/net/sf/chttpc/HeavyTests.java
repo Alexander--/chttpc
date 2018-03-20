@@ -34,9 +34,7 @@ public class HeavyTests extends BaseTestSuite {
         try (StreamingUploadServer sas = new StreamingUploadServer(HUGE_BUFFER)) {
             AsyncServerSocket sock = sas.listen(0);
 
-            CurlHttp curl = CurlHttp.create(queue, CurlHttp.DEFAULT_FLAGS);
-
-            CurlConnection conn = new CurlConnection(curl, config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString("http://localhost:" + sock.getLocalPort() + "/fixed");
             conn.connect();
 
@@ -57,7 +55,7 @@ public class HeavyTests extends BaseTestSuite {
 
             CurlHttp curl = CurlHttp.create(queue, CurlHttp.DEFAULT_FLAGS);
 
-            CurlConnection conn = new CurlConnection(curl, config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString("http://localhost:" + sock.getLocalPort() + "/chunked");
             conn.connect();
 
@@ -80,7 +78,7 @@ public class HeavyTests extends BaseTestSuite {
 
             CurlHttp curl = CurlHttp.create(queue, CurlHttp.DEFAULT_FLAGS);
 
-            CurlConnection conn = new CurlConnection(curl, config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setFixedLengthStreamingMode(HUGE_BUFFER);
             conn.setUrlString("http://localhost:" + sock.getLocalPort());
             conn.setRequestProperty("Content-Type", "application/binary");
@@ -109,7 +107,7 @@ public class HeavyTests extends BaseTestSuite {
 
             CurlHttp curl = CurlHttp.create(queue, CurlHttp.DEFAULT_FLAGS);
 
-            CurlConnection conn = new CurlConnection(curl, config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setChunkedStreamingMode(400);
             conn.setUrlString("http://localhost:" + sock.getLocalPort());
             conn.setRequestProperty("Content-Type", "application/binary");

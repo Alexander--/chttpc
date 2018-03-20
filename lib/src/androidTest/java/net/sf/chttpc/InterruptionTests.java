@@ -46,7 +46,7 @@ public class InterruptionTests extends BaseTestSuite {
             Thread t = new Thread("Interruption Test") {
                 @Override
                 public void run() {
-                    CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+                    CurlConnection conn = new CurlConnection(config);
                     conn.setUrlString(server.url("/").toString());
 
                     try (InputStream stream = conn.getInputStream()) {
@@ -74,7 +74,7 @@ public class InterruptionTests extends BaseTestSuite {
         Thread t = new Thread("Interruption Test") {
             @Override
             public void run() {
-                CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+                CurlConnection conn = new CurlConnection(config);
                 conn.setUrlString(server.url("/").toString());
 
                 try (InputStream stream = conn.getInputStream()) {
@@ -104,7 +104,7 @@ public class InterruptionTests extends BaseTestSuite {
         FutureTask<?> t = new FutureTask<>(new Callable<Void>() {
             @Override
             public Void call() throws Exception {
-                CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+                CurlConnection conn = new CurlConnection(config);
                 conn.setUrlString(server.url("/").toString());
 
                 try (InputStream stream = conn.getInputStream()) {

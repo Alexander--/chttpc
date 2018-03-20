@@ -33,7 +33,7 @@ public class SimpleTest extends BaseTestSuite {
     @Test
     public void reuseTest() throws IOException, InterruptedException {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201));

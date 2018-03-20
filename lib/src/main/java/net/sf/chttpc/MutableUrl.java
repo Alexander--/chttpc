@@ -3,7 +3,9 @@ package net.sf.chttpc;
 import android.support.annotation.CheckResult;
 import android.support.annotation.NonNull;
 import android.text.GetChars;
+import android.text.TextUtils;
 
+import java.net.URL;
 import java.util.Arrays;
 
 /**
@@ -36,21 +38,21 @@ public class MutableUrl implements CharSequence {
         buffer[length++] = ch;
     }
 
-    public void append(String string) {
+    public void append(@NonNull String string) {
         append(string, 0, string.length());
     }
 
-    public void append(String string, int off, int count) {
+    public void append(@NonNull String string, int off, int count) {
         ensureBufferSpace(count);
         string.getChars(off, count, buffer, length);
         length += count;
     }
 
-    public void append(CharSequence chars) {
+    public void append(@NonNull CharSequence chars) {
         append(chars, 0, chars.length());
     }
 
-    public void append(CharSequence chars, int off, int count) {
+    public void append(@NonNull CharSequence chars, int off, int count) {
         ensureBufferSpace(count);
         for (int i = 0; i < count; ++i) {
             buffer[length + i] = chars.charAt(off + i);
@@ -58,11 +60,11 @@ public class MutableUrl implements CharSequence {
         length += count;
     }
 
-    public void append(char[] array) {
+    public void append(@NonNull char[] array) {
         append(array, 0, array.length);
     }
 
-    public void append(char[] array, int off, int count) {
+    public void append(@NonNull char[] array, int off, int count) {
         ensureBufferSpace(count);
         System.arraycopy(array, off, buffer, length, count);
         length += count;

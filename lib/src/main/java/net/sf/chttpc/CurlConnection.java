@@ -22,23 +22,28 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.FutureTask;
 
 public class CurlConnection extends HttpURLConnection {
+    private static final int STATE_CLEAN = 0;
+    private static final int STATE_DIRTY = 1;
+    private static final int STATE_RECYCLED = 2;
     @SuppressWarnings("all")
     private static final String REQ_METHOD_DEFAULT = new String("GET");
 
-    private final CurlHttp curl;
     private final Config config;
 
     private HeaderMap headerMap;
+    private CurlHttp curl;
+    private int state;
 
     protected Proxy proxy;
 
-    protected CurlConnection(@NonNull CurlHttp curl, @NonNull Config config) {
+    protected CurlConnection(@NonNull Config config) {
         super(null);
 
         this.config = config;
-        this.curl = curl;
+        this.curl = config.getCurl();
 
         this.method = REQ_METHOD_DEFAULT;
     }
@@ -60,17 +65,23 @@ public class CurlConnection extends HttpURLConnection {
     @NonNull
     @CheckResult
     public CurlHttp getCurl() {
+        reacquire();
+
         return curl;
     }
 
     @Override
     @CheckResult
     public URL getURL() {
-        try {
-            return new URL(curl.getUrl().toString());
-        } catch (MalformedURLException e) {
-            throw new RuntimeException(e);
+        if (state != STATE_RECYCLED) {
+            try {
+                url = new URL(curl.getUrl().toString());
+            } catch (MalformedURLException e) {
+                throw new RuntimeException(e);
+            }
         }
+
+        return url;
     }
 
     private void assertConnected() {
@@ -83,6 +94,8 @@ public class CurlConnection extends HttpURLConnection {
         if (connected) {
             throw new IllegalStateException("Already connected");
         }
+
+        reacquire();
     }
 
     @Override
@@ -209,6 +222,8 @@ public class CurlConnection extends HttpURLConnection {
     }
 
     protected void configure(Interruption helper) throws IOException {
+        reacquire();
+
         curl.configure(
                 helper,
                 getRequestMethod(),
@@ -299,9 +314,11 @@ public class CurlConnection extends HttpURLConnection {
 
     @Override
     public void disconnect() {
+        curl.clearHeaders();
+
         reset();
 
-        curl.clearHeaders();
+        state = STATE_CLEAN;
     }
 
     public void reset() {
@@ -525,7 +542,36 @@ public class CurlConnection extends HttpURLConnection {
         return this.getClass().getName() + ":" + curl.getUrl();
     }
 
+    /**
+     * Attempt to obtain internal {@link CurlHttp} instance, detaching it from this CurlConnection
+     * in process. This method will succeed only if this CurlConnection is freshly created or just
+     * have had {@link #disconnect} executed.
+     *
+     * @return a ready-to-use {@link CurlHttp} instance or {@code null}, if the internal instance can not be reused
+     */
+    @Nullable
+    protected CurlHttp recycle() {
+        if (state != STATE_CLEAN) {
+            return null;
+        }
+
+        this.state = STATE_RECYCLED;
+
+        return curl;
+    }
+
+    private void reacquire() {
+        if (state == STATE_RECYCLED) {
+            curl = config.getCurl();
+        }
+
+        state = STATE_DIRTY;
+    }
+
     public interface Config {
+        @NonNull
+        CurlHttp getCurl();
+
         @Nullable
         String getDnsServers();
 

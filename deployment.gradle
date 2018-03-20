@@ -2,7 +2,7 @@ def packageDesc = 'Implementation of HttpURLConnection, that aims for low GC ove
 def packageSite = 'https://github.com/Alexander--/chttpc'
 def mainLic = 'Apache-2.0'
 def libVcs = 'https://github.com/Alexander--/chttpc'
-def libVer = '0.2'
+def libVer = '0.2.5'
 
 def props = new Properties()
 
@@ -46,7 +46,7 @@ if (props) {
         publications {
             chttpc(MavenPublication) {
                 artifact ([
-                        source: file("$rootProject.projectDir/release-compressed.aar"),
+                        source: file("$rootProject.projectDir/release.aar"),
                         extension: 'aar',
                 ])
                 artifact androidSourcesJar
@@ -59,13 +59,28 @@ if (props) {
                     provider.asNode().append(pomXmlContents)
                 }
             }
+            chttpc_small(MavenPublication) {
+                artifact ([
+                        source: file("$rootProject.projectDir/release-compressed.aar"),
+                        extension: 'aar',
+                ])
+                artifact androidSourcesJar
+
+                groupId 'net.sf.chttpc'
+                artifactId 'chttpc-compact'
+                version libVer
+
+                pom.withXml { provider ->
+                    provider.asNode().append(pomXmlContents)
+                }
+            }
         }
     }
 
     bintray {
         user = props['bintrayUser']
         key = props['bintrayKey']
-        publications = ['chttpc']
+        publications = ['chttpc', 'chttpc_small']
 
         pkg {
             repo = 'maven'

@@ -34,21 +34,21 @@ public class FailureTests extends BaseTestSuite {
 
     @Test(expected = MalformedURLException.class)
     public void testUrlBadProtocolError() throws Exception {
-        CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+        CurlConnection conn = new CurlConnection(config);
         conn.setUrlString("brbr://tschchchchchchch");
         conn.connect();
     }
 
     @Test(expected = MalformedURLException.class)
     public void testMalformedUrl() throws Exception {
-        CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+        CurlConnection conn = new CurlConnection(config);
         conn.setUrlString("");
         conn.connect();
     }
 
     @Test(expected = UnknownHostException.class)
     public void testDnsNoSuchHost() throws Exception {
-        CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+        CurlConnection conn = new CurlConnection(config);
         conn.setUrlString("aaaaaaaaaaaaaaaaaaaaaapppsss");
         conn.getInputStream();
     }
@@ -61,7 +61,7 @@ public class FailureTests extends BaseTestSuite {
 
             server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.FAIL_HANDSHAKE));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
 
             conn.getResponseCode();
@@ -73,7 +73,7 @@ public class FailureTests extends BaseTestSuite {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setResponseCode(201));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
 
             conn.connect();
@@ -87,7 +87,7 @@ public class FailureTests extends BaseTestSuite {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setResponseCode(201));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
             conn.setDoInput(false);
 
@@ -100,7 +100,7 @@ public class FailureTests extends BaseTestSuite {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setResponseCode(200));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
             conn.setDoOutput(false);
 
@@ -113,7 +113,7 @@ public class FailureTests extends BaseTestSuite {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setResponseCode(500).setBody("Server Error!"));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
 
             conn.getInputStream();
@@ -125,7 +125,7 @@ public class FailureTests extends BaseTestSuite {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setResponseCode(201));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
             conn.getHeaderField("Content-Type");
         }
@@ -136,7 +136,7 @@ public class FailureTests extends BaseTestSuite {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setResponseCode(201));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
             conn.getHeaderField(0);
         }
@@ -147,7 +147,7 @@ public class FailureTests extends BaseTestSuite {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setResponseCode(201));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
             conn.getHeaderFieldKey(0);
         }
@@ -158,7 +158,7 @@ public class FailureTests extends BaseTestSuite {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setResponseCode(201));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
             conn.getHeaderFields();
         }
@@ -172,7 +172,7 @@ public class FailureTests extends BaseTestSuite {
 
             server.enqueue(new MockResponse().setResponseCode(201));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
             conn.connect();
 
@@ -188,7 +188,7 @@ public class FailureTests extends BaseTestSuite {
 
             server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.FAIL_HANDSHAKE));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
 
             conn.getResponseCode();
@@ -198,7 +198,7 @@ public class FailureTests extends BaseTestSuite {
     @Test(expected = SocketTimeoutException.class, timeout = 2000)
     public void testConnTimeout() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE));
 
@@ -213,7 +213,7 @@ public class FailureTests extends BaseTestSuite {
     public void terribleTimeoutShowcase() throws Exception {
         MockWebServer server = new MockWebServer();
 
-        CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+        CurlConnection conn = new CurlConnection(config);
 
         server.enqueue(new MockResponse()
                 .throttleBody(1, 10000, TimeUnit.DAYS)
@@ -230,7 +230,7 @@ public class FailureTests extends BaseTestSuite {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
 
             conn.getResponseCode();
@@ -242,7 +242,7 @@ public class FailureTests extends BaseTestSuite {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
 
             conn.getResponseCode();

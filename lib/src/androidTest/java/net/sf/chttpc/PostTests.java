@@ -28,23 +28,6 @@ public class PostTests extends BaseTestSuite {
     @BeforeClass
     public static void setupCleaner() throws Exception {
         baseSetup();
-
-        config = new CurlConnection.Config() {
-            @Override
-            public String getDnsServers() {
-                return null;
-            }
-
-            @Override
-            public String getNetworkInterface(@NonNull MutableUrl url) {
-                return null;
-            }
-
-            @Override
-            public Proxy getProxy(@NonNull MutableUrl url) {
-                return null;
-            }
-        };
     }
 
     @Test(timeout = 2000)
@@ -56,7 +39,7 @@ public class PostTests extends BaseTestSuite {
 
             final String bigBody = "Get this!!!!!!!1!!!!!!!!!!!!!!!!2!!!!!!!!!!!!!!!!!!3!!!!!!!!!!4";
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setDoOutput(true);
             conn.setRequestProperty("Expect", null);
             conn.setFixedLengthStreamingMode(bigBody.length());
@@ -89,7 +72,7 @@ public class PostTests extends BaseTestSuite {
 
             final String bigBody = new String(chars);
 
-            final CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            final CurlConnection conn = new CurlConnection(config);
 
             //CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
             conn.setDoOutput(true);
@@ -119,7 +102,7 @@ public class PostTests extends BaseTestSuite {
             server.start();
             server.enqueue(new MockResponse().setBody("Nice"));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setDoOutput(true);
             conn.setRequestProperty("Expect", null);
             conn.setFixedLengthStreamingMode(bigBody.length());
@@ -150,7 +133,7 @@ public class PostTests extends BaseTestSuite {
 
             final String bigBody = new String(chars);
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setDoOutput(true);
             conn.setRequestProperty("Expect", null);
             conn.setUrlString(server.url("/").toString());
@@ -180,7 +163,7 @@ public class PostTests extends BaseTestSuite {
                     .setBody("Nice")
                     .setSocketPolicy(SocketPolicy.EXPECT_CONTINUE));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setDoOutput(true);
             conn.setRequestProperty("Expect", "100-Continue");
             conn.setFixedLengthStreamingMode(bigBody.length());
@@ -211,7 +194,7 @@ public class PostTests extends BaseTestSuite {
                     .setHeader("foobar", "Hooray!")
                     .setSocketPolicy(SocketPolicy.EXPECT_CONTINUE));
 
-            final CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            final CurlConnection conn = new CurlConnection(config);
             conn.setDoOutput(true);
             conn.setRequestProperty("Expect", "100-Continue");
             conn.setFixedLengthStreamingMode(bigBody.length());
@@ -250,7 +233,7 @@ public class PostTests extends BaseTestSuite {
 
             final String bigBody = new String(chars);
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setDoOutput(true);
             conn.setRequestProperty("Expect", "100-Continue");
             conn.setUrlString(server.url("/").toString());
@@ -279,7 +262,7 @@ public class PostTests extends BaseTestSuite {
             server.enqueue(new MockResponse()
                     .setBody("Nice"));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setDoOutput(true);
             conn.setRequestProperty("Expect", "100-Continue");
             conn.setFixedLengthStreamingMode(bigBody.length());
@@ -311,7 +294,7 @@ public class PostTests extends BaseTestSuite {
 
             final String bigBody = new String(chars);
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setDoOutput(true);
             conn.setRequestProperty("Expect", "100-Continue");
             conn.setUrlString(server.url("/").toString());

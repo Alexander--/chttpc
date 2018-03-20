@@ -146,8 +146,8 @@ public final class BitmapProviderPicasso implements BitmapProvider {
     }
 
     private static final class HttpConnection extends CurlConnection {
-        HttpConnection(@NonNull CurlHttp curl, @NonNull Config config) {
-            super(curl, config);
+        HttpConnection(@NonNull Config config) {
+            super(config);
         }
 
         @Override
@@ -238,9 +238,15 @@ public final class BitmapProviderPicasso implements BitmapProvider {
 
         private final HttpCore curlCore = new HttpCore(url, CurlHttp.DEFAULT_FLAGS | CurlHttp.FLAG_USE_FAST_OPEN);
 
-        private final HttpConnection connection = new HttpConnection(curlCore, this);
+        private final HttpConnection connection = new HttpConnection(this);
 
         private final InputStream stream = new HttpStream(curlCore);
+
+        @NonNull
+        @Override
+        public CurlHttp getCurl() {
+            return curlCore;
+        }
 
         @Nullable
         @Override
