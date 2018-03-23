@@ -94,8 +94,6 @@ enum OPTIONS {
 
 #define RELEASE(lock) (__sync_lock_release(&(lock)))
 
-const static int candidate_signals[] = { SIGWINCH, SIGTTIN, SIGTTOU };
-
 #define ARRAY_SIZE(x) (sizeof(x)/sizeof((x)[0]))
 
 #if CHTTPC_DEBUG
@@ -143,7 +141,6 @@ struct curl_data {
 static system_property_get getprop;
 
 static jclass wrapper;
-static jclass ioException;
 static jclass javaString;
 static jmethodID threadingCb;
 
@@ -163,16 +160,9 @@ static jmethodID threadingCb;
 #define ERROR_ILLEGAL_STATE 13
 #define ERROR_INTERRUPTED 14
 #define ERROR_CLOSED 15
+#define ERROR_OTHER 16
 
 #define HEADER_BUF_SIZE_DEFAULT 20u
-
-static __attribute__ ((noinline, cold)) void interruption_handler(int signo, siginfo_t* info, void* unused) {
-    void* ref = info -> si_value.sival_ptr;
-
-    if (ref  != NULL) {
-        *((volatile _Atomic uint32_t*) ref) = 1;
-    }
-}
 
 static void buffer_read(struct curl_data* ctrl, jobject* buf_, void* buffer, int count) {
     JNIEnv* env = ctrl->env;
@@ -597,7 +587,7 @@ static __attribute__ ((noinline,cold)) void handleMultiError(struct curl_data* c
         if (lastError == CURLM_OUT_OF_MEMORY) {
             oomThrow(env);
         } else {
-            (*env)->ThrowNew(env, ioException, errorDesc);
+            throwOther(env, errorDesc, ERROR_OTHER);
         }
     }
 }
@@ -667,7 +657,7 @@ static __attribute__ ((noinline)) void handleEasyError(struct curl_data* ctrl, C
                 oomThrow(env);
                 break;
             default:
-                (*env) -> ThrowNew(env, ioException, errorDesc);
+                throwOther(env, errorDesc, ERROR_OTHER);
         }
     }
 }
@@ -697,11 +687,6 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_nativeInit(JNIEnv *env, jclass cu
 
     wrapper = (*env) -> NewGlobalRef(env, curlWrapper);
     if (wrapper == NULL) {
-        return;
-    }
-
-    ioException = saveClassRef("java/io/IOException", env);
-    if (ioException == NULL) {
         return;
     }
 
@@ -2106,11 +2091,11 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_getLastFd(JNIEnv *env, jclass typ
     multi_getsock(ctrl->curl, s, 2);
 
     if (s[0] == CURL_SOCKET_BAD || s[1] != CURL_SOCKET_BAD) {
-        (*env) -> ThrowNew(env, ioException, "Unable to obtain socket");
+        throwOther(env, "Unable to obtain socket", ERROR_OTHER);
         return;
     }
 
     if (TEMP_FAILURE_RETRY(dup2(s[0], fd)) == -1) {
-        (*env) -> ThrowNew(env, ioException, "Failed to copy file descriptor");
+        throwOther(env, "Failed to copy file descriptor", ERROR_OTHER);
     }
 }

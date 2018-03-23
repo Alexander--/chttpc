@@ -331,6 +331,7 @@ public final class Curl {
     private static final int ERROR_ILLEGAL_STATE = 13;
     private static final int ERROR_INTERRUPTED = 14;
     private static final int ERROR_CLOSED = 15;
+    private static final int ERROR_OTHER = 16;
 
     @UsedByJni
     @SuppressWarnings("unused")
@@ -373,6 +374,8 @@ public final class Curl {
                         "The request can not be retried automatically, because of streaming transfer in progress. " +
                         "Retry manually.",
                         arg);
+            case ERROR_OTHER:
+                throw new IOException(message);
         }
     }
 
