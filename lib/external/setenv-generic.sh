@@ -7,7 +7,7 @@ _ANDROID_EABI="$A2_GCC"
 
 _ANDROID_ARCH="$A2_ARCH"
 
-_ANDROID_API="android-9"
+_ANDROID_API="android-15"
 
 #####################################################################
 

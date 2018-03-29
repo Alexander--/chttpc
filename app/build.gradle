@@ -1,16 +1,20 @@
 apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 25
+    compileSdkVersion 26
     buildToolsVersion '25.0.2'
     defaultConfig {
         applicationId 'net.sf.chttpc.demo'
-        minSdkVersion 25
+        minSdkVersion 21
         targetSdkVersion 25
         versionCode 1
         versionName '1.0'
         testInstrumentationRunner 'android.support.test.runner.AndroidJUnitRunner'
         testInstrumentationRunnerArguments [['disableAnalytics' : 'true']]
+    }
+
+    dexOptions {
+        javaMaxHeapSize '2g'
     }
 
     splits {
@@ -38,16 +42,10 @@ android {
 dependencies {
     compile project(':lib')
     compile project(':deps')
-
     compile 'net.sf.fakenames:tileview:0.3'
-
     compile 'it.unimi.dsi:fastutil:7.2.1'
-
     compile 'com.squareup.picasso:picasso:2.5.2'
-
     compile 'com.android.support:appcompat-v7:25.1.0'
-
     compile 'com.carrotsearch:hppc:0.7.2'
-
     testCompile 'junit:junit:4.12'
 }

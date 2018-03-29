@@ -29,23 +29,27 @@ tasks.addRule("NDK tasks") { String taskName ->
         def toolchain
         def hostName
         def arch
+        def archAlt
 
         switch (abi) {
             case 'x86':
                 hostName = 'i686-linux-android'
                 toolchain = "x86-${gccVer}"
                 arch = 'arch-x86'
+                archAlt = 'x86'
                 break
             case 'mips':
                 hostName = 'mipsel-linux-android'
                 toolchain = "mipsel-linux-android-${gccVer}"
                 arch = 'arch-mips'
+                archAlt = 'mips'
                 break
             case 'armeabi_v7a':
                 abi = 'armeabi-v7a'
                 hostName = 'arm-linux-androideabi'
                 toolchain = "arm-linux-androideabi-${gccVer}"
                 arch = 'arch-arm'
+                archAlt = 'arm'
                 break
             default:
                 throw new UnsupportedOperationException(abi + " not supported!")

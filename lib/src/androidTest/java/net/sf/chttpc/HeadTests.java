@@ -41,7 +41,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHead() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201));
@@ -62,7 +62,7 @@ public class HeadTests extends BaseTestSuite {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setStatus("WUHAHAHA"));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             conn.setRequestMethod("HEAD");
             conn.setUrlString(server.url("/").toString());
@@ -93,7 +93,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHeadAddClientHeader() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201));
@@ -114,7 +114,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHeadAddEmptyClientHeader() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201));
@@ -135,7 +135,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHeadSetEmptyClientHeader() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201));
@@ -156,7 +156,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHeadAddMultipleClientHeadersWithSameKey() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201));
@@ -183,7 +183,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHeadAddMultipleClientHeadersWithDistinctKeys() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201));
@@ -206,7 +206,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHeadSetClientHeader() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201));
@@ -227,7 +227,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHeadSetSameClientHeaderTwice() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201));
@@ -249,7 +249,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHeadRemoveClientHeader() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201));
@@ -271,7 +271,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHeadRemoveBuiltinClientHeader() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201));
@@ -292,7 +292,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHeadReaddBuiltinClientHeader() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201));
@@ -314,7 +314,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHeadRemoveMultipleClientHeaders() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201));
@@ -339,7 +339,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHeadRemoveDuplicateClientHeaders() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201));
@@ -362,7 +362,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHeadRemoveAndAddDuplicateClientHeaders() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201));
@@ -386,7 +386,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHeadReaddClientHeader2() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201));
@@ -409,7 +409,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHeadServerHeader() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setResponseCode(201)
@@ -430,7 +430,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testSeveralServerHeaders() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             String[][] doodleducks = new String[][]{
                     { "Doodleduck-A", "1X" },
@@ -484,7 +484,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testHeaderMap() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             String[] doodleducks = new String[] {
                     "Doodleduck-A", "1X" ,
@@ -537,7 +537,7 @@ public class HeadTests extends BaseTestSuite {
     @Test
     public void testResponseHeaderMultiMap() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             String[] doodleducks = new String[]{
                     "Doodleduck-A", "1X",
@@ -584,7 +584,7 @@ public class HeadTests extends BaseTestSuite {
 
     @Test
     public void testRequestHeader() throws Exception {
-        CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+        CurlConnection conn = new CurlConnection(config);
 
         String[] doodleducks = new String[]{
                 "Doodleduck-A", "1X",
@@ -626,7 +626,7 @@ public class HeadTests extends BaseTestSuite {
 
     @Test
     public void testRequestHeaderMultiMap() throws Exception {
-        CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+        CurlConnection conn = new CurlConnection(config);
 
         String[] doodleducks = new String[]{
                 "Doodleduck-A", "1X",

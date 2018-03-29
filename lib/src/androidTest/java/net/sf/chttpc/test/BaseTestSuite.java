@@ -60,6 +60,14 @@ public class BaseTestSuite {
         };
         cleaner.start();
         config = new CurlConnection.Config() {
+            @NonNull
+            @Override
+            public CurlHttp getCurl() {
+                return new CurlHttp(new MutableUrl() {}, CurlHttp.DEFAULT_FLAGS) {
+                    { CleanerRef.create(this, this.curlPtr, queue); }
+                };
+            }
+
             @Override
             public String getDnsServers() {
                 return null;

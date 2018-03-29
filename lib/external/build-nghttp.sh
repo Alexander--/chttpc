@@ -4,7 +4,7 @@
 
 pushd nghttp2
 
-export CFLAGS="-pipe -fPIC -Os -g0 -flto -fvisibility=hidden -ffunction-sections -fdata-sections"
+export CFLAGS="-D__ANDROID_API__=15 -pipe -fPIC -Os -g0 -flto -fvisibility=hidden -ffunction-sections -fdata-sections"
 
 echo "$A2_ABI" | grep  -q  "armeabi-v7a" && CFLAGS="$CFLAGS -march=armv7-a -mfloat-abi=softfp -mfpu=vfpv3-d16"
 echo "$A2_ABI" | grep  -q  "armeabi-v7a" && LDFLAGS="$LDFLAGS -march=armv7-a -Wl,--fix-cortex-a8"

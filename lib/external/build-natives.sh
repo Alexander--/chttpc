@@ -13,6 +13,11 @@ export A2_ROOT=$(realpath build/native-libs/$A2_ABI)
 
 export A2_DEST=$(realpath src/main/jniLibs/$A2_ABI)
 
+export PATH="$A2_TOOLCHAIN/bin:$PATH"
+
+export CPPFLAGS="-D__ANDROID_API__=15"
+export CFLAGS="-D__ANDROID_API__=15"
+
 #(./build-openssl.sh)
 
 (./build-mbedtls.sh)
@@ -20,8 +25,6 @@ export A2_DEST=$(realpath src/main/jniLibs/$A2_ABI)
 #(./build-c-ares.sh)
 
 #(./build-nghttp.sh)
-
-export PATH="$A2_TOOLCHAIN/bin:$PATH"
 
 . ./setenv-simple.sh
 

@@ -2,70 +2,62 @@ package net.sf.chttpc;
 
 import android.support.annotation.CheckResult;
 import android.support.annotation.NonNull;
-import android.text.GetChars;
+
+import com.carrotsearch.hppc.CharArrayList;
 
 import java.util.Arrays;
 
 /**
  * A {@link StringBuilder}-like type for constructing urls. This class does not perform
- * any validation, or encoding so be careful to construct valid urls yourself.
+ * any validation or encoding, so be careful to construct valid urls yourself.
  *
- * While the input data is stored in character {@link #buffer}, the final url supplied to
- * {@link CurlHttp} is expected to contain only 7-bit ASCII symbols (all codepoints are converted
- * to 8-bit chars by truncation before feeding to native library). If you want to use so-called
- * "Unicode domain names", use {@link java.net.IDN}, {@link android.icu.text.IDNA} or similar
- * facilities to convert domain names from international format to Punycode. If you expect to
- * receive some parts of url or entire urls from outside, it is recommended, that you validate
- * and transform those to canonical form, using specialized classes, such as {@link java.net.URL}.
+ * While the input data is stored in character {@link #buffer}, the final url is supposed
+ * to contain only 7-bit ASCII symbols (all codepoints will be converted to 8-bit chars
+ * by truncation before feeding to native library). If you want to use so-called
+ * "Unicode domain names", use {@link java.net.IDN} or similar facilities
+ * to convert domain names from international format to Punycode.
+ *
+ * <br/>
+ *
+ * If you expect to receive some parts of url or entire urls from outside,
+ * it is recommended, that you validate and transform those to canonical form
+ * using specialized classes, such as {@link java.net.URL}.
  */
-public class MutableUrl implements CharSequence {
-    private static final char[] EMPTY = new char[0];
-
-    private final static float GROWTH_RATIO = 1.5f;
-
-    private static final int MAX_ARRAY_LENGTH = Integer.MAX_VALUE - /* aligned array header + slack */32;
-    private final static int MIN_GROW_COUNT = 10;
-
-    public char[] buffer = EMPTY;
-    public int length;
-
+public class MutableUrl extends CharArrayList implements CharSequence, Cloneable {
     protected MutableUrl() {}
 
     public void append(char ch) {
-        ensureBufferSpace(1);
-        buffer[length++] = ch;
+        add(ch);
     }
 
-    public void append(String string) {
+    public void append(@NonNull String string) {
         append(string, 0, string.length());
     }
 
-    public void append(String string, int off, int count) {
+    public void append(@NonNull String string, int off, int count) {
         ensureBufferSpace(count);
-        string.getChars(off, count, buffer, length);
-        length += count;
+        string.getChars(off, count, buffer, elementsCount);
+        elementsCount += count;
     }
 
-    public void append(CharSequence chars) {
+    public void append(@NonNull CharSequence chars) {
         append(chars, 0, chars.length());
     }
 
-    public void append(CharSequence chars, int off, int count) {
+    public void append(@NonNull CharSequence chars, int off, int count) {
         ensureBufferSpace(count);
         for (int i = 0; i < count; ++i) {
-            buffer[length + i] = chars.charAt(off + i);
+            buffer[elementsCount + i] = chars.charAt(off + i);
         }
-        length += count;
+        elementsCount += count;
     }
 
-    public void append(char[] array) {
-        append(array, 0, array.length);
+    public void append(@NonNull char[] array) {
+        add(array, 0, array.length);
     }
 
-    public void append(char[] array, int off, int count) {
-        ensureBufferSpace(count);
-        System.arraycopy(array, off, buffer, length, count);
-        length += count;
+    public void append(@NonNull char[] array, int off, int count) {
+        add(array, off, count);
     }
 
     public void append(long number) {
@@ -74,8 +66,8 @@ public class MutableUrl implements CharSequence {
         }
         int appendedLength = (number < 0) ? stringSize(-number) + 1 : stringSize(number);
         ensureBufferSpace(appendedLength);
-        IntParser.getNumberChars(number, length + appendedLength, buffer);
-        length += appendedLength;
+        IntParser.getNumberChars(number, elementsCount + appendedLength, buffer);
+        elementsCount += appendedLength;
     }
 
     public void setLength(int newLength) {
@@ -83,32 +75,23 @@ public class MutableUrl implements CharSequence {
 
         if (newLength > buffer.length) {
             buffer = Arrays.copyOf(buffer, newLength);
-        } else if (newLength < length) {
-            Arrays.fill(buffer, newLength, length, '\0');
+        } else if (newLength < elementsCount) {
+            Arrays.fill(buffer, newLength, elementsCount, '\0');
         }
 
-        length = newLength;
-    }
-
-    public void clear() {
-        setLength(0);
-    }
-
-    public void release() {
-        buffer = EMPTY;
-        length = 0;
+        elementsCount = newLength;
     }
 
     @Override
     @CheckResult
     public int length() {
-        return length;
+        return elementsCount;
     }
 
     @Override
     @CheckResult
     public char charAt(int index) {
-        if (index >= length) throw new IndexOutOfBoundsException();
+        if (index >= elementsCount) throw new IndexOutOfBoundsException();
 
         return buffer[index];
     }
@@ -116,38 +99,20 @@ public class MutableUrl implements CharSequence {
     @Override
     @CheckResult
     public CharSequence subSequence(int start, int end) {
-        if (start >= length || end >= length) throw new IndexOutOfBoundsException();
+        if (start >= elementsCount || end >= elementsCount) throw new IndexOutOfBoundsException();
 
         return new String(buffer, start, end);
-    }
-
-    protected void ensureBufferSpace(int expectedAdditions) {
-        final int bufferLen = (buffer == null ? 0 : buffer.length);
-        if (length + expectedAdditions > bufferLen) {
-            final int newSize = grow(bufferLen, length, expectedAdditions);
-
-            this.buffer = Arrays.copyOf(buffer, newSize);
-        }
-    }
-
-    protected int grow(int currentBufferLength, int elementsCount, int expectedAdditions) {
-        long growBy = (long) ((long) currentBufferLength * GROWTH_RATIO);
-        growBy = Math.max(growBy, MIN_GROW_COUNT);
-        growBy = Math.min(growBy, MAX_ARRAY_LENGTH);
-        long growTo = Math.min(MAX_ARRAY_LENGTH, growBy + currentBufferLength);
-        long newSize = Math.max((long) elementsCount + expectedAdditions, growTo);
-
-        if (newSize > MAX_ARRAY_LENGTH) {
-            throw new RuntimeException("Java array size exceeded");
-        }
-
-        return (int) newSize;
     }
 
     @NonNull
     @Override
     public String toString() {
-        return new String(buffer, 0, length);
+        return new String(buffer, 0, elementsCount);
+    }
+
+    @Override
+    public MutableUrl clone() {
+        return (MutableUrl) super.clone();
     }
 
     private static int stringSize(long x) {

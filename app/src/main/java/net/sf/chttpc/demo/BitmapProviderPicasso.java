@@ -15,6 +15,7 @@ import net.sf.chttpc.CurlHttp;
 import net.sf.chttpc.MutableUrl;
 import net.sf.xfd.Interruption;
 
+import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.Proxy;
@@ -103,11 +104,11 @@ public final class BitmapProviderPicasso implements BitmapProvider {
 
             opts.inBitmap = recycled;
 
-            //Log.v(TAG, "Starting decoding  for " + rowNum + ' ' + colNum + ' ' + zLevel.getZ());
+            Log.v(TAG, "Starting decoding  for " + rowNum + ' ' + colNum + ' ' + zLevel.getZ());
 
-            bitmap = BitmapFactory.decodeStream(locals.stream, null, opts);
+            bitmap = BitmapFactory.decodeStream(locals.getStream(), null, opts);
 
-            //Log.v(TAG, "Completed " + rowNum + ' ' + colNum + ' ' + zLevel.getZ());
+            Log.v(TAG, "Completed " + rowNum + ' ' + colNum + ' ' + zLevel.getZ());
 
             if (bitmap != null && !thread.isInterrupted()) {
                 if (recycled == bitmap) {
@@ -123,6 +124,8 @@ public final class BitmapProviderPicasso implements BitmapProvider {
         } catch(Throwable t) {
             // probably couldn't find the file, got cancelled in tough way, maybe OOME
             Log.v(TAG, t.toString());
+
+            t.printStackTrace();
         } finally {
             if (recycled != null) {
                 recycler.recycleBitmap(recycled);
@@ -146,8 +149,8 @@ public final class BitmapProviderPicasso implements BitmapProvider {
     }
 
     private static final class HttpConnection extends CurlConnection {
-        HttpConnection(@NonNull CurlHttp curl, @NonNull Config config) {
-            super(curl, config);
+        HttpConnection(@NonNull Config config) {
+            super(config);
         }
 
         @Override
@@ -238,9 +241,23 @@ public final class BitmapProviderPicasso implements BitmapProvider {
 
         private final HttpCore curlCore = new HttpCore(url, CurlHttp.DEFAULT_FLAGS | CurlHttp.FLAG_USE_FAST_OPEN);
 
-        private final HttpConnection connection = new HttpConnection(curlCore, this);
+        private final HttpConnection connection = new HttpConnection(this);
 
         private final InputStream stream = new HttpStream(curlCore);
+
+        private final ReusableBuffer buffered = new ReusableBuffer(stream);
+
+        private InputStream getStream() {
+            buffered.reset();
+
+            return buffered;
+        }
+
+        @NonNull
+        @Override
+        public CurlHttp getCurl() {
+            return curlCore;
+        }
 
         @Nullable
         @Override
@@ -258,6 +275,23 @@ public final class BitmapProviderPicasso implements BitmapProvider {
         @Override
         public Proxy getProxy(@NonNull MutableUrl url) {
             return null;
+        }
+    }
+
+    private static final class ReusableBuffer extends BufferedInputStream {
+        ReusableBuffer(@NonNull InputStream in) {
+            super(in);
+        }
+
+        @Override
+        public synchronized void reset() {
+            pos = 0;
+            count = 0;
+        }
+
+        @Override
+        public void close() {
+            reset();
         }
     }
 }

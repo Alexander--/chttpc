@@ -1,14 +1,23 @@
 package net.sf.chttpc;
 
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Message;
+import android.os.MessageQueue;
+import android.os.ParcelFileDescriptor;
 import android.support.annotation.CheckResult;
 import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.annotation.RequiresApi;
 import android.system.Os;
+import android.util.SparseArray;
 
 import net.sf.xfd.Interruption;
 import net.sf.xfd.NativePeer;
 
+import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
@@ -17,11 +26,12 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.ref.ReferenceQueue;
 import java.net.URLConnection;
+import java.nio.ByteBuffer;
 import java.util.LinkedHashMap;
 import java.util.concurrent.TimeUnit;
 
 @NativePeer
-public class CurlHttp {
+public class CurlHttp implements Cloneable {
     public static final String DEBUG = "net.sf.chttpc.debug";
 
     private static boolean debug;
@@ -33,6 +43,15 @@ public class CurlHttp {
 
         debug = Boolean.valueOf(System.getProperty(DEBUG));
     }
+
+    public static final int OFF_READ_PENDING = 32;
+    public static final int OFF_CONN_TIMEOUT = 44;
+    public static final int OFF_READ_TIMEOUT = OFF_CONN_TIMEOUT + 4;
+    public static final int OFF_STATE        = OFF_READ_TIMEOUT + 4;
+
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef({OFF_READ_PENDING, OFF_CONN_TIMEOUT, OFF_READ_TIMEOUT, OFF_STATE})
+    public @interface NativeOffset {}
 
     public static final int GET = 0;
     public static final int POST = 1;
@@ -77,6 +96,7 @@ public class CurlHttp {
     private static final int OPTION_MAX_REDIRECT_COUNT  = 3;
 
     protected final MutableUrl url;
+    protected final ByteBuffer buffer;
     protected final long curlPtr;
 
     /**
@@ -91,9 +111,11 @@ public class CurlHttp {
      * {@link #configure}.
      */
     protected CurlHttp(MutableUrl url, @Flags int flags) {
-        this.url = url;
+        final Curl curl = Curl.nativeCreate(0, flags);
 
-        this.curlPtr = Curl.nativeCreate(flags);
+        this.url = url;
+        this.curlPtr = curl.curlPtr;
+        this.buffer = curl.buffer;
     }
 
     protected static CurlHttp create(@NonNull ReferenceQueue<Object> refQueue) {
@@ -342,18 +364,23 @@ public class CurlHttp {
             long contentLength,
             int readTimeout,
             int connectTimeout,
-            int chunkSize,
             @CurlProxy.ProxyType int proxyType,
             @Method int requestMethod,
             boolean followRedirects,
             boolean doInput,
             boolean doOutput) throws IOException {
         final char[] urlBuffer = url.buffer;
-        final int urlLength = url.length;
+        final int urlLength = url.elementsCount;
 
         if (urlLength < 0 || urlLength > urlBuffer.length) {
-            throw new IndexOutOfBoundsException();
+            throw new IndexOutOfBoundsException("Bad URL length: " + urlLength);
         }
+
+        readTimeout = readTimeout <= 0 ? Integer.MAX_VALUE : readTimeout;
+        connectTimeout = connectTimeout <= 0 ? Integer.MAX_VALUE : connectTimeout;
+
+        setNativeInt(OFF_CONN_TIMEOUT, connectTimeout);
+        setNativeInt(OFF_READ_TIMEOUT, readTimeout);
 
         char[] newUrl = Curl.nativeConfigure(
                 curlPtr,
@@ -365,11 +392,8 @@ public class CurlHttp {
                 dns,
                 ifName,
                 urlLength,
-                readTimeout,
-                connectTimeout,
                 proxyType,
                 requestMethod,
-                chunkSize,
                 followRedirects,
                 doInput,
                 doOutput);
@@ -383,7 +407,7 @@ public class CurlHttp {
         if (newUrl == url.buffer) {
             for (int i = 0; i < newUrl.length; ++i) {
                 if (newUrl[i] == '\0') {
-                    url.length = i;
+                    url.elementsCount = i;
                     return;
                 }
             }
@@ -391,18 +415,43 @@ public class CurlHttp {
             url.buffer = newUrl;
         }
 
-        url.length = newUrl.length;
+        url.elementsCount = newUrl.length;
     }
 
+    /**
+     * Reset state of native curl instance.
+     *
+     * This method removes an easy handle from multi handle and resets most internal state
+     * except for request headers and configuration options.
+     */
     public void reset() {
         Curl.reset(curlPtr);
     }
 
+    /**
+     * Create a new unbuffered stream, that can be used for writing streamed response
+     * to remote HTTP server. Automatic chunk-encoding can be requested by adding
+     * "Transfer-Encoding: chunked" to client headers or simply by starting upload
+     * without specifying content length.
+     *
+     * <br>
+     *
+     * The returned stream holds a strong reference to this class and is not thread-safe.
+     */
     @NonNull
     public OutputStream newOutputStream() {
         return new CurlOutputStream();
     }
 
+    /**
+     * Create a new unbuffered stream, that can be used for reading streamed response
+     * from remote HTTP server. The stream will automatically decode gzip-encoded and
+     * chunk-encoded responses for you.
+     *
+     * <br>
+     *
+     * The returned stream holds a strong reference to this class and is not thread-safe.
+     */
     @NonNull
     public InputStream newInputStream() {
         return new CurlInputStream();
@@ -436,7 +485,7 @@ public class CurlHttp {
     /**
      * Deallocate native resources, associated with specified handle.
      *
-     * Do not use. There is generally no safe way to invoke this method, except after the instance
+     * Do not use. There is generally no safe way to invoke this method until the instance
      * has been garbage-collected.
      */
     protected static void nativeDispose(long nativePtr) {
@@ -453,6 +502,14 @@ public class CurlHttp {
 
     protected void httpWriteEnd(Interruption i) throws IOException {
         Curl.closeOutput(curlPtr, i.toNative());
+    }
+
+    protected int getNativeInt(@NativeOffset int offset) {
+        return buffer.getInt(offset);
+    }
+
+    protected void setNativeInt(@NativeOffset int offset, int value) {
+        buffer.putInt(offset, value);
     }
 
     private static void i10nCheck(Interruption i10n, int transferred) throws InterruptedIOException {
@@ -481,6 +538,11 @@ public class CurlHttp {
         @Override
         public int read(@NonNull byte[] b) throws IOException {
             return doRead(b, 0, b.length);
+        }
+
+        @Override
+        public int available() throws IOException {
+            return getNativeInt(OFF_READ_PENDING);
         }
 
         @Override

@@ -1,5 +1,6 @@
 #include <jni.h>
 #include <android/log.h>
+#include <android/looper.h>
 #include <curl/curl.h>
 #include <dlfcn.h>
 #include <alloca.h>
@@ -52,6 +53,7 @@ enum OPTIONS {
 #define STATE_NEED_OUTPUT (1u << 7)
 #define STATE_DONE_SENDING (1u << 8)
 #define STATE_SEEN_HEADER_END (1u << 9)
+#define STATE_FINISHED (1u << 10)
 
 #define SET_ATTACHED(i) (i->state |= STATE_ATTACHED)
 #define SET_DETACHED(i) (i->state &= ~STATE_ATTACHED)
@@ -83,6 +85,9 @@ enum OPTIONS {
 #define SET_SEEN_HEADER_END(i) (i->state |= STATE_SEEN_HEADER_END)
 #define SET_SEEN_NO_HEADER_END(i) (i->state &= ~STATE_SEEN_HEADER_END)
 
+#define SET_FINISHED(i) (i->state |= STATE_FINISHED)
+#define SET_NOT_FINISHED(i) (i->state &= ~STATE_FINISHED)
+
 #define MAX_LOCAL_ALLOC (1024 * 8)
 
 #define TOLOWER(data) ((data > 0x40 && data < 0x5b) ? data|0x60 : data)
@@ -96,7 +101,7 @@ enum OPTIONS {
 
 #define ARRAY_SIZE(x) (sizeof(x)/sizeof((x)[0]))
 
-#if CHTTPC_DEBUG
+#if 1//CHTTPC_DEBUG
 #define LOG(...) ((void) __android_log_print(ANDROID_LOG_DEBUG, "chttpc", __VA_ARGS__))
 #else
 #define LOG(...) {}
@@ -111,6 +116,19 @@ struct curl_hdr {
 
 
 struct curl_data {
+    uint32_t headerBufSize;
+    uint16_t headerPairCount;
+    uint16_t maxHeaderLength;
+    uint64_t uploadedCount;
+    uint64_t uploadGoal;
+    jint readOffset;
+    jint countToRead;
+    jint readOverflow;
+    jint writeOffset;
+    jint countToWrite;
+    jint connTimeout;
+    jint readTimeout;
+    uint32_t state;
     struct curl_slist* outHeaders;
     CURL* curl;
     CURLM* multi;
@@ -119,20 +137,8 @@ struct curl_data {
     jbyteArray bufferForSending;
     Hashmap* headers;
     void** headerPairs;
-    uint32_t headerBufSize;
-    uint16_t headerPairCount;
-    uint16_t maxHeaderLength;
-    uint64_t uploadedCount;
-    uint64_t uploadGoal;
-    uint32_t state;
-    jint readOffset;
-    jint countToRead;
-    jint readOverflow;
-    jint writeOffset;
-    jint countToWrite;
-    jint connTimeout;
-    jint readTimeout;
     i10n_ptr interrupted;
+    int timerfd;
     volatile _Atomic uint32_t busy;
     uint16_t outHeaderCount;
     char errorBuffer[CURL_ERROR_SIZE];
@@ -765,6 +771,7 @@ JNIEXPORT jlong JNICALL Java_net_sf_chttpc_Curl_nativeCreate(JNIEnv *env, jclass
 
     CURL* curl = curl_easy_init();
     CURLM* multi = curl_multi_init();
+    ctrl->timerfd = syscall(__NR_timerfd_create, CLOCK_MONOTONIC, 0);
 
     if (ctrl == NULL || headerPairs == NULL || headers == NULL || curl == NULL || multi == NULL) {
         oomThrow(env);
@@ -796,11 +803,11 @@ JNIEXPORT jlong JNICALL Java_net_sf_chttpc_Curl_nativeCreate(JNIEnv *env, jclass
 
     curl_easy_setopt(curl, CURLOPT_IPRESOLVE, (flags & FLAG_USE_IPV6) ? CURL_IPRESOLVE_WHATEVER : CURL_IPRESOLVE_V4);
     curl_easy_setopt(curl, CURLOPT_TRANSFER_ENCODING, (flags & FLAG_REQUEST_COMPRESSION) ? 1L : 0L);
-    curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, (flags & FLAG_TCP_NODELAY) ? 1L : 0L);
+    //curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, (flags & FLAG_TCP_NODELAY) ? 1L : 0L);
     curl_easy_setopt(curl, CURLOPT_KEEP_SENDING_ON_ERROR, (flags & FLAG_SEND_AFTER_ERROR) ? 1L : 0L);
-    curl_easy_setopt(curl, CURLOPT_SSL_FALSESTART, (flags & FLAG_TLS_FALSE_START) ? 1L : 0L);
-    curl_easy_setopt(curl, CURLOPT_TCP_FASTOPEN, (flags & FLAG_TCP_FAST_OPEN) ? 1L : 0L);
-    curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, (flags & FLAG_TCP_KEEP_ALIVE) ? 1L : 0L);
+    //curl_easy_setopt(curl, CURLOPT_SSL_FALSESTART, (flags & FLAG_TLS_FALSE_START) ? 1L : 0L);
+    //curl_easy_setopt(curl, CURLOPT_TCP_FASTOPEN, (flags & FLAG_TCP_FAST_OPEN) ? 1L : 0L);
+    //curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, (flags & FLAG_TCP_KEEP_ALIVE) ? 1L : 0L);
 
     curl_easy_setopt(curl, CURLOPT_NETRC, CURL_NETRC_IGNORED);
     curl_easy_setopt(curl, CURLOPT_SEEKFUNCTION, &seek_callback);
@@ -854,6 +861,7 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_reset(JNIEnv *env, jclass type, j
 static void asciiDecode(JNIEnv* env, jstring str, char* dest, jint length) {
     const jchar* chars = (*env) -> GetStringCritical(env, str, NULL);
 
+    // since headers are guaranteed to be ASCII, convert to UTF-16 by shortcut
     for (int i = 0; i < length; ++i) {
         dest[i] = (unsigned char) chars[i];
     }
@@ -889,6 +897,28 @@ static bool checkResult(struct curl_data* handle) {
     LOG("Events consumed");
 
     return completed != 0;
+}
+
+static int looper_callback(int fd, int events, void* data) {
+    struct curl_data* ctrl = (struct curl_data*) (intptr_t) data;
+
+    if (*ctrl->interrupted) {
+        return events;
+    }
+
+    int running;
+
+    CURLMcode result = curl_multi_socket_action(ctrl->multi, fd, events, &running);
+
+    if (unlikely(result)) {
+        handleMultiError(ctrl, result);
+        return events;
+    }
+
+    if (checkResult(ctrl)) {
+        LOG("Has completed connections, bailing");
+        return events;
+    }
 }
 
 static bool curlPerform(struct curl_data* ctrl) {
@@ -1005,11 +1035,8 @@ JNIEXPORT jcharArray JNICALL Java_net_sf_chttpc_Curl_nativeConfigure(JNIEnv *env
                                                                jstring dns,
                                                                jstring ifName,
                                                                jint urlLength,
-                                                               jint readTimeout,
-                                                               jint connTimeout,
                                                                jint proxyType,
                                                                jint reqType,
-                                                               jint chunkLength,
                                                                jboolean followRedirects,
                                                                jboolean doInput,
                                                                jboolean doOutput) {
@@ -1177,9 +1204,6 @@ JNIEXPORT jcharArray JNICALL Java_net_sf_chttpc_Curl_nativeConfigure(JNIEnv *env
         curl_easy_setopt(curl, CURLOPT_INTERFACE, NULL);
     }
 
-    ctrl->readTimeout = readTimeout <= 0 ? INT32_MAX : readTimeout;
-    ctrl->connTimeout = connTimeout <= 0 ? INT32_MAX : connTimeout;
-
     if (doInput) {
         SET_DO_INPUT(ctrl);
 
@@ -1286,6 +1310,8 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_dispose(JNIEnv *env, jclass type,
     hashmapFree(ctrl->headers);
 
     releaseHeaders(ctrl);
+
+    close(ctrl->timerfd);
 
     free(ctrl->headerPairs);
 
@@ -1500,7 +1526,7 @@ static jobjectArray getResponseHeaders(struct curl_data* ctrl, JNIEnv *env) {
     }
 
     if (ctrl->headerPairCount > 5) {
-        // at this rate we might run out of local references to store headers
+        // at this rate we might run out of local references to store headers;
         // rather than wasting CPU time on calls to DeleteGlobalRef, let's batch
         localFrameRes = (*env) -> PushLocalFrame(env, ctrl->headerPairCount + 1);
         if (localFrameRes) {
@@ -1705,38 +1731,27 @@ static const char* getHeader(JNIEnv *env, struct curl_data* ctrl, jstring key, j
         return NULL;
     }
 
-    const char* result;
-
-    if (key != NULL) {
-        char* localKey = alloca(l + 1);
-
-        // since headers are guaranteed to be ASCII, convert to UTF-16 by shortcut
-        const jchar* strKey = (*env) -> GetStringCritical(env, key, NULL);
-
-        for (int p = 0; p < l; ++p) {
-            localKey[p] = (unsigned char) strKey[p];
-        }
-
-        (*env) -> ReleaseStringCritical(env, key, strKey);
-
-        localKey[l] = '\0';
-
-        LOG("Searching for %s within %d items", localKey, ctrl->headers->size);
-
-        struct curl_hdr* found = hashmapGet(ctrl->headers, localKey);
-
-        if (found == NULL) {
-            LOG("Not found :(");
-
-            return NULL;
-        }
-
-        result = found->header;
-    } else {
-        result = getSpecialHeader(ctrl, l);
+    if (key == NULL) {
+        return getSpecialHeader(ctrl, l);
     }
 
-    return result;
+    char* localKey = alloca(l + 1);
+
+    asciiDecode(env, key, localKey, l);
+
+    localKey[l] = '\0';
+
+    LOG("Searching for %s within %d items", localKey, ctrl->headers->size);
+
+    struct curl_hdr* found = hashmapGet(ctrl->headers, localKey);
+
+    if (found == NULL) {
+        LOG("Not found :(");
+
+        return NULL;
+    }
+
+    return found->header;
 }
 
 JNIEXPORT jlong JNICALL Java_net_sf_chttpc_Curl_intHeader(JNIEnv *env, jclass type, jlong curlPtr, jlong defaultValue, jstring key, jint l) {
@@ -1764,7 +1779,13 @@ JNIEXPORT jlong JNICALL Java_net_sf_chttpc_Curl_intHeader(JNIEnv *env, jclass ty
     char* failCheck = NULL;
     resultInt = strtoll(result, &failCheck, 10);
 
-    if (failCheck == NULL || *failCheck != '\0') {
+    if (failCheck != NULL && *failCheck == '\0') {
+        goto success;
+    }
+
+    resultInt = (jlong) curl_getdate(result, NULL);
+
+    if (resultInt == -1) {
         goto enough;
     }
 
@@ -1830,18 +1851,11 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_setHeader(JNIEnv *env, jclass typ
 
     hasToFree = true;
 
-    const jchar *key = (*env)->GetStringCritical(env, key_, NULL);
-
-    int p;
-    for (p = 0; p < kLen; ++p) {
-        localBuffer[p] = (unsigned char) key[p];
-    }
-
-    (*env)->ReleaseStringCritical(env, key_, key);
+    asciiDecode(env, key_, localBuffer, kLen);
 
     char sep = (char) (valLen == 0 ? ';' : ':');
 
-    localBuffer[p++] = sep;
+    localBuffer[kLen] = sep;
 
     char** newHeader = NULL;
 
@@ -1876,7 +1890,7 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_setHeader(JNIEnv *env, jclass typ
     }
 
     if (valLen < 0) {
-        localBuffer[p] = '\0';
+        localBuffer[kLen + 1] = '\0';
         ctrl->outHeaders = curl_slist_append(ctrl->outHeaders, localBuffer);
         goto enough;
     }
@@ -1899,16 +1913,10 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_setHeader(JNIEnv *env, jclass typ
 
 insert:
     if (valLen != 0) {
-        const jchar *value = (*env)->GetStringCritical(env, value_, NULL);
-
-        for (int i = 0; p < kLen + 1 + valLen; ++p, ++i) {
-            localBuffer[p] = (unsigned char) value[i];
-        }
-
-        (*env)->ReleaseStringCritical(env, value_, value);
+        asciiDecode(env, value_, localBuffer + kLen + 1, valLen);
     }
 
-    localBuffer[p] = '\0';
+    localBuffer[kLen + 1 + valLen] = '\0';
 
     *newHeader = localBuffer;
     hasToFree = false;
@@ -1946,24 +1954,13 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_addHeader(JNIEnv *env, jclass typ
         hasToFree = true;
     }
 
-    const jchar *key = (*env)->GetStringCritical(env, key_, NULL);
-    const jchar *value = (*env)->GetStringCritical(env, value_, NULL);
+    asciiDecode(env, key_, localBuffer, kLen);
 
-    int p = 0;
-    for (; p < kLen; ++p) {
-        localBuffer[p] = (unsigned char) key[p];
-    }
+    localBuffer[kLen] = (char) (valLen == 0 ? ';' : ':');
 
-    localBuffer[p++] = (char) (valLen == 0 ? ';' : ':');
+    asciiDecode(env, value_, localBuffer + kLen + 1, valLen);
 
-    for (int i = 0; p < kLen + 1 + valLen; ++p, ++i) {
-        localBuffer[p] = (unsigned char) value[i];
-    }
-
-    localBuffer[p] = '\0';
-
-    (*env)->ReleaseStringCritical(env, key_, key);
-    (*env)->ReleaseStringCritical(env, value_, value);
+    localBuffer[kLen + 1 + valLen] = '\0';
 
     ctrl->outHeaders = curl_slist_append(ctrl->outHeaders, localBuffer);
 
@@ -2001,20 +1998,16 @@ JNIEXPORT jstring JNICALL Java_net_sf_chttpc_Curl_outHeader(JNIEnv *env, jclass 
         hasToFree = true;
     }
 
-    const jchar *key = (*env)->GetStringCritical(env, key_, NULL);
+    asciiDecode(env, key_, localBuffer, kLen);
 
-    size_t i;
-    for (i = 0; i < kLen; ++i) {
-        localBuffer[i] = (unsigned char) key[i];
-    }
-    localBuffer[i] = '\0';
-
-    (*env)->ReleaseStringCritical(env, key_, key);
+    localBuffer[kLen] = '\0';
 
     struct curl_slist* next = ctrl->outHeaders;
 
     do {
-        if (!strncasecmp(localBuffer, next->data, i) && (next->data[kLen] == ':' || next->data[kLen] == ';')) {
+        if (!strncasecmp(localBuffer, next->data, (size_t) kLen)
+            && (next->data[kLen] == ':' || next->data[kLen] == ';')) {
+
             result = (*env) ->NewStringUTF(env, next->data + kLen + 1);
             break;
         }
@@ -2098,4 +2091,46 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_getLastFd(JNIEnv *env, jclass typ
     if (TEMP_FAILURE_RETRY(dup2(s[0], fd)) == -1) {
         throwOther(env, "Failed to copy file descriptor", ERROR_OTHER);
     }
+}
+
+JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_react(JNIEnv *env, jclass type, jlong curlPtr, jint fd, jint events) {
+    struct curl_data* ctrl = (struct curl_data*) (intptr_t) curlPtr;
+
+    int handles = 0;
+
+    CURLMcode code = curl_multi_socket_action(ctrl->multi, fd, events, &handles);
+
+    if (code) {
+        handleMultiError(ctrl, code);
+    }
+
+    while(handles) {
+        CURLMsg* msg = curl_multi_info_read(ctrl->multi, &handles);
+
+        if (msg == NULL || msg->msg != CURLMSG_DONE) {
+            return;
+        }
+
+        LOG("curl_multi_info_read returned %d %d", (int) msg->msg, msg->data.result);
+
+        CURL* handle = msg->easy_handle;
+
+        struct curl_data* userp = NULL;
+
+        curl_easy_getinfo(handle, CURLOPT_PRIVATE, &userp);
+
+        SET_FINISHED(userp);
+
+        CURLcode result = msg->data.result;
+
+        if (result) {
+            handleEasyError(userp, result);
+
+            return;
+        }
+    }
+}
+
+JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_setListener(JNIEnv *env, jclass type, jlong curlPtr, jobject listener) {
+
 }

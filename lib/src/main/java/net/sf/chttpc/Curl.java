@@ -33,12 +33,17 @@ import java.net.URLStreamHandler;
 import java.net.URLStreamHandlerFactory;
 import java.net.UnknownHostException;
 import java.net.UnknownServiceException;
+import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Queue;
+import java.util.concurrent.ArrayBlockingQueue;
 
 import javax.net.ssl.SSLException;
 
 public final class Curl {
-    private Curl() {}
+    public static final int EVENT_HEADERS = 0;
+    public static final int EVENT_INPUT = 1;
+    public static final int EVENT_OUTPUT = 2;
 
     private static volatile boolean initialized;
 
@@ -68,6 +73,24 @@ public final class Curl {
         URL.setURLStreamHandlerFactory(factory);
     }
 
+    final long curlPtr;
+    final ByteBuffer buffer;
+
+    @UsedByJni
+    private Curl(long ptr, ByteBuffer state) {
+        this.curlPtr = ptr;
+        this.buffer = state;
+    }
+
+    public interface Listener {
+        void onEvent(int event);
+    }
+
+    public interface CurlFactory {
+        @NonNull
+        CurlHttp getCurl();
+    }
+
     public interface DnsSource {
         @Nullable
         String getDnsServer();
@@ -87,6 +110,7 @@ public final class Curl {
     public static final class ConnectionBuilder {
         private final Context context;
 
+        private CurlFactory curlFactory;
         private DnsSource dnsSource;
         private InterfaceSource ifSource;
         private ReferenceQueue<Object> refQueue;
@@ -94,6 +118,12 @@ public final class Curl {
 
         public ConnectionBuilder(Context context) {
             this.context = context.getApplicationContext();
+        }
+
+        public ConnectionBuilder setCurlFactory(@NonNull CurlFactory curlFactory) {
+            this.curlFactory = curlFactory;
+
+            return this;
         }
 
         public ConnectionBuilder setDnsSource(@NonNull DnsSource dnsSource) {
@@ -159,7 +189,25 @@ public final class Curl {
                 reaper.start();
             }
 
-            return new CurlURLStreamHandlerFactory(refQueue, ifSource, dnsSource, proxySource);
+            if (curlFactory == null) {
+                curlFactory = new CurlMaker(refQueue);
+            }
+
+            return new CurlURLStreamHandlerFactory(curlFactory, ifSource, dnsSource, proxySource);
+        }
+    }
+
+    private static final class CurlMaker implements CurlFactory {
+        private final ReferenceQueue<Object> queue;
+
+        CurlMaker(ReferenceQueue<Object> queue) {
+            this.queue = queue;
+        }
+
+        @NonNull
+        @Override
+        public CurlHttp getCurl() {
+            return CurlHttp.create(queue);
         }
     }
 
@@ -185,20 +233,51 @@ public final class Curl {
         }
     }
 
+    private static final class ReusableConnection extends CurlConnection {
+        private final CurlURLStreamHandlerFactory factory;
+
+        ReusableConnection(@NonNull CurlURLStreamHandlerFactory factory) {
+            super(factory);
+
+            this.factory = factory;
+        }
+
+        @Override
+        public void disconnect() {
+            super.disconnect();
+
+            CurlHttp recycled;
+
+            // this lock is here to prevent pollution of global connection cache with duplicates
+            // that might otherwise happen if someone calls disconnect() from different threads
+            synchronized (this) {
+                recycled = recycle();
+            }
+
+            if (recycled != null) {
+                factory.recycle(recycled);
+            }
+        }
+    }
+
     public static final class CurlURLStreamHandlerFactory implements URLStreamHandlerFactory, CurlConnection.Config {
         private final CurlURLStreamHandler handler;
+        private final CurlFactory curlFactory;
         private final DnsSource dnsSource;
         private final InterfaceSource interfaceSource;
         private final ProxySource proxySource;
 
-        public CurlURLStreamHandlerFactory(ReferenceQueue<Object> queue,
+        private final Queue<CurlHttp> cache = new ArrayBlockingQueue<>(4);
+
+        public CurlURLStreamHandlerFactory(CurlFactory curlFactory,
                                            InterfaceSource interfaceSource,
                                            DnsSource dnsSource,
                                            ProxySource proxySource) {
+            this.curlFactory = curlFactory;
             this.dnsSource = dnsSource;
             this.proxySource = proxySource;
             this.interfaceSource = interfaceSource;
-            this.handler = new CurlURLStreamHandler(queue, this);
+            this.handler = new CurlURLStreamHandler(this);
         }
 
         @Override
@@ -210,6 +289,26 @@ public final class Curl {
                 default:
                     throw new UnsupportedOperationException("Unsupported protocol: " + protocol);
             }
+        }
+
+        public void recycle(CurlHttp curl) {
+            cache.offer(curl);
+        }
+
+        public CurlHttp obtain() {
+            CurlHttp cached = cache.poll();
+
+            if (cached != null) {
+                return cached;
+            }
+
+            return curlFactory.getCurl();
+        }
+
+        @NonNull
+        @Override
+        public CurlHttp getCurl() {
+            return obtain();
         }
 
         @Override
@@ -228,21 +327,18 @@ public final class Curl {
         }
     }
 
-    @SuppressWarnings("MissingPermission")
     public static final class CurlURLStreamHandler extends URLStreamHandler {
-        private final ReferenceQueue<Object> refQueue;
-        private final CurlConnection.Config config;
+        private final CurlURLStreamHandlerFactory config;
 
-        private CurlURLStreamHandler(ReferenceQueue<Object> refQueue, CurlConnection.Config config) {
-            this.refQueue = refQueue;
+        private CurlURLStreamHandler(CurlURLStreamHandlerFactory config) {
             this.config = config;
         }
 
         @Override
         public CurlConnection openConnection(URL url) throws IOException {
-            final CurlHttp curl = CurlHttp.create(refQueue);
-            final CurlConnection connection = new CurlConnection(curl, config);
-            connection.setUrlString(url.toString());
+            final CurlConnection connection = new ReusableConnection(config);
+            final CurlHttp curl = connection.getCurl();
+            setUrl(curl, url);
             connection.setProxy(config.getProxy(curl.url));
             connection.setRequestProperty("Expect", null);
             return connection;
@@ -250,11 +346,45 @@ public final class Curl {
 
         @Override
         public CurlConnection openConnection(URL url, Proxy proxy) throws IOException {
-            final CurlConnection connection = new CurlConnection(CurlHttp.create(refQueue), config);
-            connection.setUrlString(url.toString());
+            final CurlConnection connection = new ReusableConnection(config);
+            setUrl(connection.getCurl(), url);
             connection.setProxy(proxy);
             connection.setRequestProperty("Expect", null);
             return connection;
+        }
+
+        private static void setUrl(CurlHttp curl, URL url) {
+            final MutableUrl template = curl.getUrl();
+
+            final String p = url.getProtocol();
+            final String a = url.getAuthority();
+            final String r = url.getRef();
+            final String f = url.getFile();
+
+            int len = 1 + p.length()
+                    + (a == null ? 0 : 2 + a.length())
+                    + (f == null ? 0 : 2 + f.length())
+                    + (r == null ? 0 : 1 + r.length());
+
+            template.setLength(len);
+            template.elementsCount = 0;
+
+            template.append(p);
+            template.append(":");
+
+            if (a != null) {
+                template.append("//");
+                template.append(a);
+            }
+
+            if (f != null) {
+                template.append(f);
+            }
+
+            if (r != null) {
+                template.append("#");
+                template.append(r);
+            }
         }
     }
 
@@ -381,7 +511,9 @@ public final class Curl {
 
     static native void nativeInit();
 
-    static native long nativeCreate(int flags);
+    public static native void setListener(long curlPtr, Listener listener);
+
+    static native Curl nativeCreate(long parentPtr, int flags);
 
     static native void setOptionInt(long curlPtr, long value, int option);
 
@@ -395,11 +527,8 @@ public final class Curl {
             String dns,
             String ifName,
             int urlLength,
-            int readTimeout,
-            int connectTimeout,
             int proxyType,
             int requestMethod,
-            int chunkSize,
             boolean followRedirects,
             boolean doInput,
             boolean doOutput) throws IOException;

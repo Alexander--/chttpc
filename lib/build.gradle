@@ -72,6 +72,7 @@ task prepareRelease(type: Exec) {
 
     inputs.file "$rootProject.projectDir/repack.sh"
     outputs.file "$rootProject.projectDir/release-compressed.aar"
+    outputs.file "$rootProject.projectDir/release.aar"
 }
 
 repositories {

@@ -41,8 +41,8 @@ find . -type f | sort | faketime -f "$STARTDATE" fastjar -@c0M > ../release.aar
 sha256sum ../release.aar
 
 # no UPX + advancecomp
-advzip -z -4 ../release.aar
-sha256sum ../release.aar
+#advzip -z -4 ../release.aar
+#sha256sum ../release.aar
 
 # with UPX (should be repeatable, since we build UPX above, but who knows...)
 chmod +x jni/*/*.so

@@ -1,13 +1,23 @@
 package net.sf.chttpc;
 
+import android.graphics.BitmapFactory;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.MessageQueue;
+import android.os.ParcelFileDescriptor;
 import android.support.annotation.AnyThread;
 import android.support.annotation.CheckResult;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.annotation.RequiresApi;
 
 import net.sf.xfd.Interruption;
 
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileDescriptor;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
@@ -17,28 +27,35 @@ import java.net.MalformedURLException;
 import java.net.ProtocolException;
 import java.net.Proxy;
 import java.net.URL;
-import java.sql.Date;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import static android.os.MessageQueue.OnFileDescriptorEventListener.EVENT_ERROR;
+import static android.os.MessageQueue.OnFileDescriptorEventListener.EVENT_INPUT;
+import static android.os.MessageQueue.OnFileDescriptorEventListener.EVENT_OUTPUT;
+
 public class CurlConnection extends HttpURLConnection {
+    private static final int STATE_CLEAN = 0;
+    private static final int STATE_DIRTY = 1;
+    private static final int STATE_RECYCLED = 2;
     @SuppressWarnings("all")
     private static final String REQ_METHOD_DEFAULT = new String("GET");
 
-    private final CurlHttp curl;
     private final Config config;
 
     private HeaderMap headerMap;
+    private CurlHttp curl;
+    private int state;
 
     protected Proxy proxy;
 
-    protected CurlConnection(@NonNull CurlHttp curl, @NonNull Config config) {
+    protected CurlConnection(@NonNull Config config) {
         super(null);
 
         this.config = config;
-        this.curl = curl;
+        this.curl = config.getCurl();
 
         this.method = REQ_METHOD_DEFAULT;
     }
@@ -60,17 +77,23 @@ public class CurlConnection extends HttpURLConnection {
     @NonNull
     @CheckResult
     public CurlHttp getCurl() {
+        reacquire();
+
         return curl;
     }
 
     @Override
     @CheckResult
     public URL getURL() {
-        try {
-            return new URL(curl.getUrl().toString());
-        } catch (MalformedURLException e) {
-            throw new RuntimeException(e);
+        if (state != STATE_RECYCLED) {
+            try {
+                url = new URL(curl.getUrl().toString());
+            } catch (MalformedURLException e) {
+                throw new RuntimeException(e);
+            }
         }
+
+        return url;
     }
 
     private void assertConnected() {
@@ -83,6 +106,8 @@ public class CurlConnection extends HttpURLConnection {
         if (connected) {
             throw new IllegalStateException("Already connected");
         }
+
+        reacquire();
     }
 
     @Override
@@ -130,15 +155,8 @@ public class CurlConnection extends HttpURLConnection {
     @Override
     @AnyThread
     @CheckResult
-    @SuppressWarnings("deprecation")
     public long getHeaderFieldDate(@NonNull String name, long Default) {
-        final String value = getHeaderField(name);
-
-        if (value == null) {
-            return Default;
-        }
-
-        return Date.parse(value.contains("GMT") ? value : value + " GMT");
+        return curl.getResponseHeader(name, Default);
     }
 
     @Override
@@ -209,6 +227,8 @@ public class CurlConnection extends HttpURLConnection {
     }
 
     protected void configure(Interruption helper) throws IOException {
+        reacquire();
+
         curl.configure(
                 helper,
                 getRequestMethod(),
@@ -218,7 +238,6 @@ public class CurlConnection extends HttpURLConnection {
                 getFixedLength(),
                 getReadTimeout(),
                 getConnectTimeout(),
-                chunkLength,
                 getProxyType(),
                 getRequestType(),
                 getInstanceFollowRedirects(),
@@ -299,9 +318,11 @@ public class CurlConnection extends HttpURLConnection {
 
     @Override
     public void disconnect() {
+        curl.clearHeaders();
+
         reset();
 
-        curl.clearHeaders();
+        state = STATE_CLEAN;
     }
 
     public void reset() {
@@ -346,6 +367,20 @@ public class CurlConnection extends HttpURLConnection {
         }
 
         return inputStream;
+    }
+
+    private CurlListener listener;
+
+    public void setListener(CurlListener listener) {
+        reacquire();
+
+        if (listener == null) {
+            Curl.setListener(curl.curlPtr, null);
+        } else {
+            Curl.setListener(curl.curlPtr, new Listener());
+        }
+
+        this.listener = listener;
     }
 
     @Override
@@ -450,7 +485,9 @@ public class CurlConnection extends HttpURLConnection {
         connect();
 
         if (outputStream == null) {
-            outputStream = curl.newOutputStream();
+            OutputStream upload = curl.newOutputStream();
+
+            outputStream = chunkLength <= 0 ? upload : new ChunkedUploadStream(upload, chunkLength);
         }
 
         return outputStream;
@@ -525,7 +562,55 @@ public class CurlConnection extends HttpURLConnection {
         return this.getClass().getName() + ":" + curl.getUrl();
     }
 
+    /**
+     * Attempt to obtain internal {@link CurlHttp} instance, detaching it from this CurlConnection
+     * in process. This method will succeed only if this CurlConnection is freshly created or just
+     * have had {@link #disconnect} executed.
+     *
+     * @return a ready-to-use {@link CurlHttp} instance or {@code null}, if the internal instance can not be reused
+     */
+    @Nullable
+    CurlHttp recycle() {
+        if (state != STATE_CLEAN) {
+            return null;
+        }
+
+        this.state = STATE_RECYCLED;
+
+        return curl;
+    }
+
+    void reacquire() {
+        if (state == STATE_RECYCLED) {
+            curl = config.getCurl();
+        }
+
+        state = STATE_DIRTY;
+    }
+
+    @Override
+    protected CurlConnection clone() {
+        try {
+            CurlConnection clone = (CurlConnection) super.clone();
+
+            clone.curl = Curl.copy(curl.curlPtr);
+        } catch (CloneNotSupportedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public interface CurlListener {
+        void onHeadersReady(@NonNull CurlConnection connection);
+
+        void onInputStreamReady(@NonNull CurlConnection connection);
+
+        void onOutputStreamReady(@NonNull CurlConnection connection);
+    }
+
     public interface Config {
+        @NonNull
+        CurlHttp getCurl();
+
         @Nullable
         String getDnsServers();
 
@@ -534,5 +619,35 @@ public class CurlConnection extends HttpURLConnection {
 
         @Nullable
         Proxy getProxy(@NonNull MutableUrl url);
+    }
+
+    private static final class ChunkedUploadStream extends BufferedOutputStream {
+        ChunkedUploadStream(@NonNull OutputStream out, int size) {
+            super(out, size);
+        }
+
+        @Override
+        public void close() throws IOException {
+            try {
+                super.flush();
+
+                out.close();
+            } finally {
+                count = 0;
+            }
+        }
+    }
+
+    private static final class Listener implements Curl.Listener {
+        Listener() {
+
+        }
+
+        @Override
+        public void onEvent(int event) {
+            switch (event) {
+
+            }
+        }
     }
 }

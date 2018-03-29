@@ -40,7 +40,7 @@ public class StateMachineTests extends BaseTestSuite {
     @Test
     public void errorStreamIsNullOn200() throws IOException {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             conn.setUrlString(server.url("/").toString());
 
@@ -56,7 +56,7 @@ public class StateMachineTests extends BaseTestSuite {
     @Test
     public void errorStreamIsNullOn300() throws IOException {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             conn.setUrlString(server.url("/").toString());
 
@@ -74,7 +74,7 @@ public class StateMachineTests extends BaseTestSuite {
     @Test
     public void errorStreamIsNullBeforeConnect() throws IOException {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             conn.setUrlString(server.url("/").toString());
 
@@ -88,7 +88,7 @@ public class StateMachineTests extends BaseTestSuite {
     @Test
     public void errorStreamIsNotNullOn500() throws IOException {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             conn.setUrlString(server.url("/").toString());
 
@@ -104,7 +104,7 @@ public class StateMachineTests extends BaseTestSuite {
     @Test
     public void errorStreamIsNotNullOn400() throws IOException {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             conn.setUrlString(server.url("/").toString());
 
@@ -120,7 +120,7 @@ public class StateMachineTests extends BaseTestSuite {
     @Test(expected = IOException.class)
     public void errorWhenReadingFromClosedInput() throws IOException {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             conn.setUrlString(server.url("/").toString());
 
@@ -139,7 +139,7 @@ public class StateMachineTests extends BaseTestSuite {
     @Test(expected = IOException.class)
     public void errorWhenWritingToClosedOutput() throws IOException {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             conn.setUrlString(server.url("/").toString());
 
@@ -161,7 +161,7 @@ public class StateMachineTests extends BaseTestSuite {
     @Test
     public void errorInputCloseIdempotent() throws IOException {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             conn.setUrlString(server.url("/").toString());
 
@@ -180,7 +180,7 @@ public class StateMachineTests extends BaseTestSuite {
     @Test
     public void errorOutputCloseIdempotent() throws IOException {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             conn.setUrlString(server.url("/").toString());
 
@@ -204,7 +204,7 @@ public class StateMachineTests extends BaseTestSuite {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setResponseCode(201));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
             conn.setDoInput(false);
 
@@ -219,7 +219,7 @@ public class StateMachineTests extends BaseTestSuite {
         try (MockWebServer server = new MockWebServer()) {
             server.enqueue(new MockResponse().setResponseCode(404));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
             conn.setDoInput(false);
 
@@ -242,7 +242,7 @@ public class StateMachineTests extends BaseTestSuite {
                     .setResponseCode(200)
                     .addHeader("foobar2", "there!"));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server1.url("/").toString());
             conn.setDoInput(false);
             conn.setInstanceFollowRedirects(true);
@@ -269,7 +269,7 @@ public class StateMachineTests extends BaseTestSuite {
                     .setResponseCode(299)
                     .setBody("3"));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
             conn.setRequestMethod("GET");
             conn.setDoInput(false);
@@ -303,7 +303,7 @@ public class StateMachineTests extends BaseTestSuite {
                     .setResponseCode(298)
                     .setBody("2"));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
             conn.setDoInput(true);
             conn.setDoOutput(true);
@@ -339,4 +339,19 @@ public class StateMachineTests extends BaseTestSuite {
             assertThat(os1).isNotSameAs(os2);
         }
     }
+
+    private static final int ough =                  0b1010011111;
+
+    private static final int STATE_ATTACHED =        0b0000000001;
+    private static final int STATE_HANDLE_REDIRECT = 0b0000000010;
+    private static final int STATE_DO_INPUT =        0b0000000100;
+    private static final int STATE_RECV_PAUSED =     0b0000001000;
+    private static final int STATE_DO_OUTPUT =       0b0000010000;
+    private static final int STATE_SEND_PAUSED =     0b0000100000;
+    private static final int STATE_NEED_INPUT =      0b0001000000;
+    private static final int STATE_NEED_OUTPUT =     0b0010000000;
+    private static final int STATE_DONE_SENDING =    0b0100000000;
+    private static final int STATE_SEEN_HEADER_END = 0b1000000000;
+
+    private static final int CRAPPY_STATE =          0b1001001111;
 }

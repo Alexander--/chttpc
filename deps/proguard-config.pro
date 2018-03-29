@@ -13,6 +13,14 @@
     void append(java.lang.String, java.lang.String);
 }
 
+-keep class net.sf.chttpc.MutableUrl {
+    void append(...);
+    void setLength(int);
+    <init>(...);
+    int elementsCount;
+    char[] buffer;
+}
+
 -repackageclasses net.sf.chttpc
 
 -keepattributes Signature

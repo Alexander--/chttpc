@@ -46,7 +46,7 @@ public class GetTests extends BaseTestSuite {
                     .setSocketPolicy(SocketPolicy.DISCONNECT_DURING_REQUEST_BODY)
                     .setResponseCode(200));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
 
             conn.getResponseCode();
@@ -65,7 +65,7 @@ public class GetTests extends BaseTestSuite {
                     .setResponseCode(200)
                     .setBody("No luck"));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
 
             assertEquals("No luck", convertStreamToString(conn.getInputStream()));
@@ -80,7 +80,7 @@ public class GetTests extends BaseTestSuite {
                     .setResponseCode(200)
                     .setBody("No luck"));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
 
             assertEquals("No luck", convertStreamToString(conn.getInputStream()));
@@ -96,7 +96,7 @@ public class GetTests extends BaseTestSuite {
                     .setResponseCode(200)
                     .setBody("No luck"));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
 
             assertEquals("No luck", convertStreamToString(conn.getInputStream()));
@@ -122,7 +122,7 @@ public class GetTests extends BaseTestSuite {
                     .setHeader("Date", formatted)
                     .setBody("No luck"));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
 
             assertEquals("No luck", convertStreamToString(conn.getInputStream()));
@@ -144,7 +144,7 @@ public class GetTests extends BaseTestSuite {
                     .setHttp2ErrorCode(ErrorCode.NO_ERROR.httpCode)
                     .setBody("No luck"));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
 
             assertEquals("No luck", convertStreamToString(conn.getInputStream()));
@@ -160,7 +160,7 @@ public class GetTests extends BaseTestSuite {
 
             server.enqueue(new MockResponse().setResponseCode(200));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
             InputStream s = conn.getInputStream();
 
@@ -182,7 +182,7 @@ public class GetTests extends BaseTestSuite {
                     .setResponseCode(200)
                     .setChunkedBody(bigBody, 5));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(server.url("/").toString());
 
             assertEquals(bigBody, convertStreamToString(conn.getInputStream()));
@@ -204,7 +204,7 @@ public class GetTests extends BaseTestSuite {
                     .throttleBody(6, 200, TimeUnit.MILLISECONDS)
                     .setChunkedBody(bigBody, 8));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setConnectTimeout(1000);
             conn.setReadTimeout(1000);
             conn.setUrlString(server.url("/").toString());
@@ -230,7 +230,7 @@ public class GetTests extends BaseTestSuite {
                     .setResponseCode(200)
                     .setBody("Here we go"));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(url1);
             conn.getResponseCode();
 
@@ -256,7 +256,7 @@ public class GetTests extends BaseTestSuite {
                     .setResponseCode(200)
                     .setBody("Here we go"));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
             conn.setUrlString(url1);
             conn.setInstanceFollowRedirects(false);
             conn.getResponseCode();
@@ -270,7 +270,7 @@ public class GetTests extends BaseTestSuite {
     @Test
     public void testSslGet() throws Exception {
         try (MockWebServer server = new MockWebServer()) {
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             server.enqueue(new MockResponse()
                     .setStatus("HTTP/1.1 200 You are moron")
@@ -303,7 +303,7 @@ public class GetTests extends BaseTestSuite {
                     .setResponseCode(200)
                     .setBody(body.clone()));
 
-            CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+            CurlConnection conn = new CurlConnection(config);
 
             conn.setUrlString(server.url("/").toString());
 

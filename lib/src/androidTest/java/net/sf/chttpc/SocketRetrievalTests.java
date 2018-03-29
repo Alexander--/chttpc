@@ -64,7 +64,7 @@ public class SocketRetrievalTests extends BaseTestSuite {
                             .setSocketPolicy(SocketPolicy.EXPECT_CONTINUE)
                             .setBody("Gee!"));
 
-                    CurlConnection conn = new CurlConnection(CurlHttp.create(queue), config);
+                    CurlConnection conn = new CurlConnection(config);
                     conn.setFixedLengthStreamingMode(HUGE_BUFFER);
                     conn.setUrlString(server.url("/").toString());
                     conn.setDoOutput(true);
