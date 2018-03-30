@@ -138,6 +138,7 @@ struct curl_data {
     Hashmap* headers;
     void** headerPairs;
     i10n_ptr interrupted;
+    struct timespec alarm;
     int timerfd;
     volatile _Atomic uint32_t busy;
     uint16_t outHeaderCount;
@@ -823,6 +824,11 @@ JNIEXPORT jlong JNICALL Java_net_sf_chttpc_Curl_nativeCreate(JNIEnv *env, jclass
     curl_easy_setopt(curl, CURLOPT_SUPPRESS_CONNECT_HEADERS, 1L);
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, ctrl->errorBuffer);
 
+    curl_multi_setopt(multi, CURLMOPT_SOCKETDATA, ctrl);
+    curl_multi_setopt(multi, CURLMOPT_SOCKETFUNCTION, &looper_callback);
+    curl_multi_setopt(multi, CURLMOPT_TIMERDATA, ctrl);
+    curl_multi_setopt(multi, CURLMOPT_TIMERFUNCTION, &header_callback);
+
     ctrl->curl = curl;
     ctrl->multi = multi;
 
@@ -899,6 +905,75 @@ static bool checkResult(struct curl_data* handle) {
     return completed != 0;
 }
 
+struct  timespec tsAdd(struct  timespec  time1, struct  timespec  time2) {
+    struct  timespec  result ;
+
+    result.tv_sec = time1.tv_sec + time2.tv_sec;
+    result.tv_nsec = time1.tv_nsec + time2.tv_nsec;
+    if (result.tv_nsec >= 1000000000L) {
+        result.tv_sec++;
+
+        result.tv_nsec = result.tv_nsec - 1000000000L;
+    }
+
+    return result;
+}
+
+struct  timespec tsCreateF(double fSeconds) {
+    struct  timespec  result;
+
+    if (fSeconds < 0) {
+        result.tv_sec = 0 ;  result.tv_nsec = 0;
+    } else if (fSeconds > (double) LONG_MAX) {
+        result.tv_sec = LONG_MAX ;  result.tv_nsec = 999999999L;
+    } else {
+        result.tv_sec = (time_t) fSeconds;
+        result.tv_nsec = (long) ((fSeconds - (double) result.tv_sec) * 1000000000.0);
+    }
+
+    return result;
+}
+
+int tsCompare(struct timespec time1, struct timespec  time2) {
+    if (time1.tv_sec < time2.tv_sec)
+        return -1;                           /* Less than. */
+    else if (time1.tv_sec > time2.tv_sec)
+        return 1;                            /* Greater than. */
+    else if (time1.tv_nsec < time2.tv_nsec)
+        return -1;                           /* Less than. */
+    else if (time1.tv_nsec > time2.tv_nsec)
+        return 1;                            /* Greater than. */
+    else
+        return 0;                            /* Equal. */
+}
+
+static void timerfd_settime(int fd, struct itimerspec* timespec) {
+    syscall(__NR_timerfd_settime, fd, 0, timespec, NULL);
+}
+
+static int timer_callback(CURLM *multi, long timeout_ms, void *userp) {
+    struct curl_data* ctrl = (struct curl_data*) (intptr_t) userp;
+
+    struct itimerspec itimerspec = {};
+
+    struct timespec current, timerspec;
+
+    switch (timeout_ms) {
+        default:
+            clock_gettime(CLOCK_MONOTONIC, &current);
+
+            timerspec = tsAdd(current, tsCreateF(timeout_ms / 1000f));
+
+            if (tsCompare(ctrl->alarm, timerspec) > 0) {
+                itimerspec.it_value = timerspec;
+                timerfd_settime(ctrl->timerfd, &itimerspec);
+            }
+            break;
+        case -1:
+            timerfd_settime(ctrl->timerfd, &itimerspec);
+    }
+}
+
 static int looper_callback(int fd, int events, void* data) {
     struct curl_data* ctrl = (struct curl_data*) (intptr_t) data;
 
@@ -919,6 +994,8 @@ static int looper_callback(int fd, int events, void* data) {
         LOG("Has completed connections, bailing");
         return events;
     }
+
+    return ALOOPER_EVENT_INPUT | ALOOPER_EVENT_OUTPUT | ALOOPER_EVENT_ERROR;
 }
 
 static bool curlPerform(struct curl_data* ctrl) {
