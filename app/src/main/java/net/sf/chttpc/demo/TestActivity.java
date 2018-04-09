@@ -2,10 +2,20 @@ package net.sf.chttpc.demo;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.util.Log;
 import android.widget.ImageView;
 
 import com.qozix.tileview.TileView;
+
+import net.sf.chttpc.CurlConnection;
+
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.Locale;
+import java.util.Scanner;
 
 public final class TestActivity extends Activity {
 
@@ -27,6 +37,83 @@ public final class TestActivity extends Activity {
 
         setContentView(R.layout.act_main);
 
+        try {
+
+            CurlConnection connection = (CurlConnection) new URL("https://google.com").openConnection();
+
+            connection.setListener(new CurlConnection.CurlListener() {
+                @Override
+                public void onHeadersReady(@NonNull CurlConnection connection) {
+                    try {
+                        Log.i("!!!", "Headers: " + connection.getResponseCode());
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+
+                @Override
+                public void onInputStreamReady(@NonNull CurlConnection connection) {
+                    Log.i("!!!", "ISREADY");
+                }
+
+                @Override
+                public void onOutputStreamReady(@NonNull CurlConnection connection) {
+                    Log.i("!!!", "OSREADY");
+                }
+
+                @Override
+                public void onCompletion(@NonNull CurlConnection connection) {
+                    Log.i("!!!", "DONE!!!!");
+                }
+
+                @Override
+                public void onError(@NonNull CurlConnection connection, @NonNull Throwable error) {
+                    Log.e("!!!", "ERR!!!!", error);
+                }
+            });
+
+            connection.addRequestProperty("X-Foobar", "TestActivity");
+            connection.addRequestProperty("X-Foobar", "TestActivity11");
+            connection.addRequestProperty("X-Foobar-2", "TestActivity");
+            connection.addRequestProperty("X-Timeout", "11");
+            connection.addRequestProperty("X-Foobar", "0");
+            connection.addRequestProperty("X-Foobar", "egweherhq345qy34ygq4ghb3q4h14h");
+            connection.addRequestProperty("Accept", "text/plain");
+            connection.addRequestProperty("X-Foobar", "vvv");
+
+            Log.i("!!!", "Header value is: " + connection.getRequestProperty("X-Foobar-2"));
+
+            Log.i("!!!", "Headers: " + connection.getRequestProperties());
+
+            //connection.setRequestMethod("HEAD");
+            connection.setDoInput(false);
+            connection.setDoOutput(false);
+            connection.setInstanceFollowRedirects(true);
+            connection.connect();
+
+            Log.i("!!!", "connect() returned");
+
+            //connection.getInputStream();
+
+            //try (Writer w = new LogWriter("TestActivity")) {
+            //    w.write(convertStreamToString(connection.getInputStream()));
+            //}
+
+            /*
+            Log.println(Log.ERROR, "!!!!!!", connection.getResponseHeader("Content-Type"));
+
+            final Map<String, List<String>> multimap = connection.getHeaderFields();
+
+            Log.println(Log.ERROR, "!!!!!!", multimap.toString());
+
+            Log.println(Log.ERROR, "!!!!!!", "" + connection.getResponseHeader(0));
+
+            Log.println(Log.ERROR, "!!!!!!", "" + connection.getResponseHeader(100));*/
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        /*
         tileView = (TileView) findViewById(R.id.act_main_tiles);
 
         tileView.setShouldLoopScale(false);
@@ -60,13 +147,14 @@ public final class TestActivity extends Activity {
         final ImageView downSample = new ImageView(this);
         downSample.setImageResource(R.drawable.preview);
         tileView.addView(downSample, 0);
+        */
 
         //tileView.scrollToAndCenter(-75.15, 39.94d);
     }
 
     @Override
     protected void onPause() {
-        tileView.pause();
+        //tileView.pause();
 
         super.onPause();
     }
@@ -75,61 +163,18 @@ public final class TestActivity extends Activity {
     protected void onResume() {
         super.onResume();
 
-        tileView.resume();
+        //tileView.resume();
     }
 
     @Override
     protected void onDestroy() {
-        tileView.destroy();
+        //tileView.destroy();
 
         super.onDestroy();
     }
 
-    /*
-    try {
 
-        HttpURLConnection connection = (HttpURLConnection) new URL("https://google.com").openConnection();
 
-        connection.addRequestProperty("X-Foobar", "TestActivity");
-        connection.addRequestProperty("X-Foobar", "TestActivity11");
-        connection.addRequestProperty("X-Foobar-2", "TestActivity");
-        connection.addRequestProperty("X-Timeout", "11");
-        connection.addRequestProperty("X-Foobar", "0");
-        connection.addRequestProperty("X-Foobar", "egweherhq345qy34ygq4ghb3q4h14h");
-        connection.addRequestProperty("Accept", "text/plain");
-        connection.addRequestProperty("X-Foobar", "vvv");
-
-        Log.i("!!!", "Header value is: " + connection.getRequestProperty("X-Foobar-2"));
-
-        Log.i("!!!", "Headers: " + connection.getRequestProperties());
-
-        //connection.setRequestMethod("HEAD");
-        connection.setDoInput(false);
-        connection.setDoOutput(false);
-        connection.setInstanceFollowRedirects(true);
-        connection.connect();
-
-        Log.i("!!!", "connect() returned");
-
-        //connection.getInputStream();
-
-        //try (Writer w = new LogWriter("TestActivity")) {
-        //    w.write(convertStreamToString(connection.getInputStream()));
-        //}
-
-            /*
-            Log.println(Log.ERROR, "!!!!!!", connection.getResponseHeader("Content-Type"));
-
-            final Map<String, List<String>> multimap = connection.getHeaderFields();
-
-            Log.println(Log.ERROR, "!!!!!!", multimap.toString());
-
-            Log.println(Log.ERROR, "!!!!!!", "" + connection.getResponseHeader(0));
-
-            Log.println(Log.ERROR, "!!!!!!", "" + connection.getResponseHeader(100));
-    } catch (IOException e) {
-        e.printStackTrace();
-    }
 
     String convertStreamToString(java.io.InputStream is) {
         try (Scanner scanner = new Scanner(is, "UTF-8")) {
@@ -142,5 +187,4 @@ public final class TestActivity extends Activity {
             return "";
         }
     }
-    */
 }

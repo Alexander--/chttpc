@@ -40,6 +40,7 @@ target_include_directories(chttpc-${CHTTPC_NATIVE_VER} PRIVATE ${distribution_DI
 
 find_library(log-lib log)
 find_library(zlib z)
+find_library(android-lib android)
 
 target_link_libraries(chttpc-${CHTTPC_NATIVE_VER}
                       lib_curl
@@ -48,6 +49,7 @@ target_link_libraries(chttpc-${CHTTPC_NATIVE_VER}
                       libmbedcrypto
                       ${zlib}
                       ${log-lib}
+                      ${android-lib}
                       -Wl,-T${CMAKE_CURRENT_LIST_DIR}/options.ld -Wl,--relax -Wl,--build-id=none -Wl,--gc-sections -Wl,--exclude-libs,ALL ${CURL_FULL_CFLAGS})
 #
 #

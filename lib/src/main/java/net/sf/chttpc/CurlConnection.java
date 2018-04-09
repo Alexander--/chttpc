@@ -64,7 +64,7 @@ public class CurlConnection extends HttpURLConnection {
         assertNotConnected();
 
         final MutableUrl current = curl.getUrl();
-        current.length = 0;
+        current.elementsCount = 0;
         current.append(urlString);
     }
 
@@ -369,18 +369,14 @@ public class CurlConnection extends HttpURLConnection {
         return inputStream;
     }
 
-    private CurlListener listener;
-
     public void setListener(CurlListener listener) {
         reacquire();
 
         if (listener == null) {
             Curl.setListener(curl.curlPtr, null);
         } else {
-            Curl.setListener(curl.curlPtr, new Listener());
+            Curl.setListener(curl.curlPtr, new Listener(listener));
         }
-
-        this.listener = listener;
     }
 
     @Override
@@ -588,23 +584,16 @@ public class CurlConnection extends HttpURLConnection {
         state = STATE_DIRTY;
     }
 
-    @Override
-    protected CurlConnection clone() {
-        try {
-            CurlConnection clone = (CurlConnection) super.clone();
-
-            clone.curl = Curl.copy(curl.curlPtr);
-        } catch (CloneNotSupportedException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
     public interface CurlListener {
         void onHeadersReady(@NonNull CurlConnection connection);
 
         void onInputStreamReady(@NonNull CurlConnection connection);
 
         void onOutputStreamReady(@NonNull CurlConnection connection);
+
+        void onCompletion(@NonNull CurlConnection connection);
+
+        void onError(@NonNull CurlConnection connection, @NonNull Throwable error);
     }
 
     public interface Config {
@@ -638,16 +627,34 @@ public class CurlConnection extends HttpURLConnection {
         }
     }
 
-    private static final class Listener implements Curl.Listener {
-        Listener() {
+    private final class Listener extends Curl.Listener {
+        private final CurlListener delegate;
 
+        Listener(CurlListener delegate) {
+            this.delegate = delegate;
         }
 
         @Override
-        public void onEvent(int event) {
+        public void onEvent(long curl, int event) {
             switch (event) {
-
+                case Curl.EVENT_INPUT:
+                    delegate.onInputStreamReady(CurlConnection.this);
+                    break;
+                case Curl.EVENT_OUTPUT:
+                    delegate.onOutputStreamReady(CurlConnection.this);
+                    break;
+                case Curl.EVENT_HEADERS:
+                    delegate.onHeadersReady(CurlConnection.this);
+                    break;
+                case Curl.EVENT_DONE:
+                    delegate.onCompletion(CurlConnection.this);
+                    break;
             }
+        }
+
+        @Override
+        protected void onError(long curl, Throwable error) {
+            delegate.onError(CurlConnection.this, error);
         }
     }
 }

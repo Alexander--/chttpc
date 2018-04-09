@@ -9,10 +9,12 @@ import android.net.LinkProperties;
 import android.net.Network;
 import android.os.Build;
 import android.os.Build.VERSION_CODES;
+import android.support.annotation.CallSuper;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.RequiresApi;
 import android.support.annotation.RequiresPermission;
+import android.util.Log;
 
 import net.sf.xfd.UsedByJni;
 
@@ -39,12 +41,9 @@ import java.util.Queue;
 import java.util.concurrent.ArrayBlockingQueue;
 
 import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLPeerUnverifiedException;
 
 public final class Curl {
-    public static final int EVENT_HEADERS = 0;
-    public static final int EVENT_INPUT = 1;
-    public static final int EVENT_OUTPUT = 2;
-
     private static volatile boolean initialized;
 
     /**
@@ -82,8 +81,34 @@ public final class Curl {
         this.buffer = state;
     }
 
-    public interface Listener {
-        void onEvent(int event);
+    public static final int EVENT_HEADERS = 0b0001;
+    public static final int EVENT_INPUT =   0b0010;
+    public static final int EVENT_OUTPUT =  0b0100;
+    public static final int EVENT_DONE =  0b1000;
+    public static final int EVENT_LAST = EVENT_DONE;
+
+    private static final int ERROR_USE_SYNCHRONIZATION = 100;
+    private static final int ERROR_DNS_FAILURE = 101;
+    private static final int ERROR_NOT_EVEN_HTTP = 102;
+    private static final int ERROR_SOCKET_CONNECT_REFUSED = 103;
+    private static final int ERROR_SOCKET_CONNECT_TIMEOUT = 104;
+    private static final int ERROR_SOCKET_READ_TIMEOUT = 105;
+    private static final int ERROR_RETRY_IMPOSSIBLE = 106;
+    private static final int ERROR_BAD_URL = 107;
+    private static final int ERROR_BINDING_FAILURE = 108;
+    private static final int ERROR_SSL_FAIL = 109;
+    private static final int ERROR_SOCKET_MYSTERY = 110;
+    private static final int ERROR_OOM = 111;
+    private static final int ERROR_PROTOCOL = 112;
+    private static final int ERROR_ILLEGAL_STATE = 113;
+    private static final int ERROR_CLOSED = 114;
+    private static final int ERROR_OTHER = 115;
+    private static final int ERROR_BAD_CERT = 116;
+
+    public static abstract class Listener {
+        protected abstract void onEvent(long curl, int event);
+
+        protected abstract void onError(long curl, Throwable error);
     }
 
     public interface CurlFactory {
@@ -445,23 +470,25 @@ public final class Curl {
         }
     }
 
-    private static final int ERROR_USE_SYNCHRONIZATION = 0;
-    private static final int ERROR_DNS_FAILURE = 1;
-    private static final int ERROR_NOT_EVEN_HTTP = 2;
-    private static final int ERROR_SOCKET_CONNECT_REFUSED = 3;
-    private static final int ERROR_SOCKET_CONNECT_TIMEOUT = 4;
-    private static final int ERROR_SOCKET_READ_TIMEOUT = 5;
-    private static final int ERROR_RETRY_IMPOSSIBLE = 6;
-    private static final int ERROR_BAD_URL = 7;
-    private static final int ERROR_BINDING_FAILURE = 8;
-    private static final int ERROR_SSL_FAIL = 9;
-    private static final int ERROR_SOCKET_MYSTERY = 10;
-    private static final int ERROR_OOM = 11;
-    private static final int ERROR_PROTOCOL = 12;
-    private static final int ERROR_ILLEGAL_STATE = 13;
-    private static final int ERROR_INTERRUPTED = 14;
-    private static final int ERROR_CLOSED = 15;
-    private static final int ERROR_OTHER = 16;
+    @UsedByJni
+    @SuppressWarnings("unused")
+    private static void dispatch(long curl, Object listener, int event) {
+        try {
+            ((Listener) listener).onEvent(curl, event);
+        } catch (Throwable t) {
+            handle(t);
+        }
+    }
+
+    @UsedByJni
+    @SuppressWarnings("unused")
+    private static void dispatch(long curl, Object listener, Throwable error) {
+        try {
+            ((Listener) listener).onError(curl, error);
+        } catch (Throwable t) {
+            handle(t);
+        }
+    }
 
     @UsedByJni
     @SuppressWarnings("unused")
@@ -475,6 +502,8 @@ public final class Curl {
                 throw new UnknownServiceException(message);
             case ERROR_SOCKET_CONNECT_REFUSED:
                 throw new ConnectException(message);
+            case ERROR_BAD_CERT:
+                throw new SSLPeerUnverifiedException(message);
             case ERROR_SSL_FAIL:
                 throw new SSLException(message);
             case ERROR_SOCKET_MYSTERY:
@@ -506,7 +535,37 @@ public final class Curl {
                         arg);
             case ERROR_OTHER:
                 throw new IOException(message);
+            default:
+                handle(message, type >> 1, arg);
         }
+    }
+
+    private static void handle(String message, int type, int arg) {
+        try {
+            throwException(message, type, arg);
+        } catch (Throwable t) {
+            handle(t);
+        }
+    }
+
+    private static void handle(Throwable t) {
+        // An error has happened within an event loop callback. We can't just throw here, —
+        // we don't know, how the calling thread might handle a sudden exception, arising
+        // from within depths of it's looper; and aborting entire JVM is against our motto.
+        // Instead let's pass a created Throwable to the thread's exception handler.
+        Thread thread = Thread.currentThread();
+
+        Thread.UncaughtExceptionHandler handler = thread.getUncaughtExceptionHandler();
+
+        if (handler != null) {
+            try {
+                handler.uncaughtException(thread, t);
+            } catch (Throwable err) {
+                Log.e("Curl", "Failed to call uncaught error handler", err);
+            }
+        }
+
+        Log.e("Curl", "Error from event loop", t);
     }
 
     static native void nativeInit();

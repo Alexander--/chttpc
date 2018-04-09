@@ -72,7 +72,7 @@ public final class BitmapProviderPicasso implements BitmapProvider {
 
             final MutableUrl url = locals.url;
 
-            url.length = URL_BASE.length();
+            url.elementsCount = URL_BASE.length();
             url.append(zLevel.getZ());
             url.append('/');
             url.append(colNum);
