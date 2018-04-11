@@ -585,11 +585,11 @@ public class CurlConnection extends HttpURLConnection {
     }
 
     public interface CurlListener {
-        void onHeadersReady(@NonNull CurlConnection connection);
+        void onHeadersReady(@NonNull CurlConnection connection) throws IOException;
 
-        void onInputStreamReady(@NonNull CurlConnection connection);
+        void onInputStreamReady(@NonNull CurlConnection connection, @NonNull InputStream input) throws IOException;
 
-        void onOutputStreamReady(@NonNull CurlConnection connection);
+        void onOutputStreamReady(@NonNull CurlConnection connection, @NonNull OutputStream output) throws IOException;
 
         void onCompletion(@NonNull CurlConnection connection);
 
@@ -636,19 +636,38 @@ public class CurlConnection extends HttpURLConnection {
 
         @Override
         public void onEvent(long curl, int event) {
-            switch (event) {
-                case Curl.EVENT_INPUT:
-                    delegate.onInputStreamReady(CurlConnection.this);
-                    break;
-                case Curl.EVENT_OUTPUT:
-                    delegate.onOutputStreamReady(CurlConnection.this);
-                    break;
-                case Curl.EVENT_HEADERS:
-                    delegate.onHeadersReady(CurlConnection.this);
-                    break;
-                case Curl.EVENT_DONE:
-                    delegate.onCompletion(CurlConnection.this);
-                    break;
+            CurlConnection connection = CurlConnection.this;
+
+            try {
+                switch (event) {
+                    case Curl.EVENT_HEADERS:
+                        delegate.onHeadersReady(connection);
+
+                        break;
+
+                    case Curl.EVENT_INPUT:
+                        InputStream is = connection.getResponseCode() >= 400
+                                ? connection.getErrorStream()
+                                : connection.getInputStream();
+
+                        delegate.onInputStreamReady(connection, is);
+
+                        break;
+
+                    case Curl.EVENT_OUTPUT:
+                        delegate.onOutputStreamReady(connection, connection.getOutputStream());
+
+                        break;
+
+                    case Curl.EVENT_DONE:
+                        delegate.onCompletion(connection);
+
+                        break;
+                }
+            } catch (IOException ioe) {
+                delegate.onError(connection, ioe);
+
+                connection.disconnect();
             }
         }
 

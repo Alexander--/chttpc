@@ -12,6 +12,8 @@ import com.qozix.tileview.TileView;
 import net.sf.chttpc.CurlConnection;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Locale;
@@ -41,23 +43,26 @@ public final class TestActivity extends Activity {
 
             CurlConnection connection = (CurlConnection) new URL("https://google.com").openConnection();
 
+            connection.setDoInput(true);
+
+            /*
             connection.setListener(new CurlConnection.CurlListener() {
                 @Override
-                public void onHeadersReady(@NonNull CurlConnection connection) {
-                    try {
-                        Log.i("!!!", "Headers: " + connection.getResponseCode());
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
+                public void onHeadersReady(@NonNull CurlConnection connection) throws IOException {
+                    Log.i("!!!", "Headers: " + connection.getResponseCode());
                 }
 
                 @Override
-                public void onInputStreamReady(@NonNull CurlConnection connection) {
+                public void onInputStreamReady(@NonNull CurlConnection connection, @NonNull InputStream input) throws IOException {
+                    input.close();
+
                     Log.i("!!!", "ISREADY");
                 }
 
                 @Override
-                public void onOutputStreamReady(@NonNull CurlConnection connection) {
+                public void onOutputStreamReady(@NonNull CurlConnection connection, @NonNull OutputStream output) throws IOException {
+                    output.close();
+
                     Log.i("!!!", "OSREADY");
                 }
 
@@ -71,6 +76,7 @@ public final class TestActivity extends Activity {
                     Log.e("!!!", "ERR!!!!", error);
                 }
             });
+            */
 
             connection.addRequestProperty("X-Foobar", "TestActivity");
             connection.addRequestProperty("X-Foobar", "TestActivity11");

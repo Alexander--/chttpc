@@ -136,6 +136,10 @@ struct curl_common {
     ALooper* looper;
     jobject callback;
     i10n_ptr interrupted;
+    jint readOffset;
+    jint countToRead;
+    jint writeOffset;
+    jint countToWrite;
     int timerfd;
     volatile _Atomic uint32_t busy;
     uint16_t connections;
@@ -146,10 +150,6 @@ struct curl_data {
     uint16_t outHeaderCount;
     uint32_t state;
     jint readOverflow;
-    jint readOffset;
-    jint countToRead;
-    jint writeOffset;
-    jint countToWrite;
     jint connTimeout;
     jint readTimeout;
     uint64_t uploadedCount;
@@ -232,22 +232,13 @@ static void buffer_write(struct curl_data* ctrl, jobject* buf_, void* buffer, in
 static inline void array_read(struct curl_data* ctrl, jobject* buf_, void* buffer, int count) {
     JNIEnv* env = ctrl->base->env;
 
-    (*env)->GetByteArrayRegion(env, buf_, ctrl->writeOffset, count, (jbyte*) buffer);
+    (*env)->GetByteArrayRegion(env, buf_, ctrl->base->writeOffset, count, (jbyte*) buffer);
 }
 
 static inline void array_write(struct curl_data* ctrl, jobject* buf_, void* ptr, int count) {
     JNIEnv* env = ctrl->base->env;
 
-    (*env)->SetByteArrayRegion(env, buf_, ctrl->readOffset, count, (jbyte*) ptr);
-}
-
-static __attribute__ ((noinline, cold)) void throwInterruptedException(struct curl_data* ctrl, jint count) {
-    /*
-     allow calling code to do it's own thing
-    JNIEnv* env = ctrl->env;
-    (*env) -> CallStaticVoidMethod(env, wrapper, threadingCb, NULL, ERROR_INTERRUPTED, count);
-    return;
-     */
+    (*env)->SetByteArrayRegion(env, buf_, ctrl->base->readOffset, count, (jbyte*) ptr);
 }
 
 static __attribute__ ((noinline)) void throwInner(JNIEnv* env, jstring error, int errType) {
@@ -323,13 +314,15 @@ static void checkResult(struct curl_common* handle) {
 
         CURL* easy = msg->easy_handle;
 
-        struct curl_data* userp = NULL;
+        char* userp = NULL;
 
-        curl_easy_getinfo(easy, CURLOPT_PRIVATE, &userp);
+        curl_easy_getinfo(easy, CURLINFO_PRIVATE, &userp);
 
-        SET_FINISHED(userp);
+        struct curl_data* ctrl = (struct curl_data*) userp;
 
-        userp->failure = msg->data.result;
+        SET_FINISHED(ctrl);
+
+        ctrl->failure = msg->data.result;
     }
     while(remaining);
 
@@ -337,6 +330,8 @@ static void checkResult(struct curl_common* handle) {
 }
 
 static void cb_error(struct curl_data* ctrl) {
+    LOG("cb_error");
+
     struct curl_common* base = ctrl->base;
 
     JNIEnv* env = get_env(base);
@@ -347,17 +342,43 @@ static void cb_error(struct curl_data* ctrl) {
 
     jlong curlPtr = (jlong) (intptr_t) ctrl;
 
-    (*env)->CallStaticVoidMethod(env, wrapper, userCb, base->callback, curlPtr, err);
+    jobject cb = base->callback;
+
+    RELEASE(base->busy);
+
+    (*env)->CallStaticVoidMethod(env, wrapper, failCb, curlPtr, cb, err);
+
+    if (ACQUIRE(base->busy)) {
+        return;
+    }
+
+    throwInner(env, NULL, ERROR_USE_SYNCHRONIZATION);
 }
 
 static void cb_event(struct curl_data* ctrl, enum jni_callback_event event) {
+    LOG("cb_event %d", event);
+
     struct curl_common* base = ctrl->base;
 
     JNIEnv* env = get_env(base);
 
     jlong curlPtr = (jlong) (intptr_t) ctrl;
 
-    (*env)->CallStaticVoidMethod(env, wrapper, userCb, base->callback, curlPtr, event);
+    jobject cb = base->callback;
+
+    jobject cbLocal = (*env)->NewLocalRef(env, cb);
+
+    RELEASE(base->busy);
+
+    (*env)->CallStaticVoidMethod(env, wrapper, userCb, curlPtr, cbLocal, event);
+
+    (*env)->DeleteLocalRef(env, cbLocal);
+
+    if (ACQUIRE(base->busy)) {
+        return;
+    }
+
+    throwInner(env, NULL, ERROR_USE_SYNCHRONIZATION);
 }
 
 static __attribute__ ((noinline)) bool handleEasyError(struct curl_data* ctrl, CURLcode lastError) {
@@ -491,7 +512,7 @@ static __attribute__ ((noinline,cold)) void handleMultiError(struct curl_data* c
     }
 }
 
-static bool doLoop(int fd, int events, struct curl_data* ctrl) {
+static bool doOnce(int fd, int events, struct curl_data *ctrl) {
     struct curl_common* base = ctrl->base;
 
     int handles = base->connections;
@@ -499,6 +520,9 @@ static bool doLoop(int fd, int events, struct curl_data* ctrl) {
     struct curl_data* handle = base->first;
 
     uint32_t* states = NULL;
+    CURLMcode mresult = CURLM_OK;
+
+    int remaining = 1;
 
     if (base->callback) {
         states = alloca(handles * sizeof(*states));
@@ -506,13 +530,13 @@ static bool doLoop(int fd, int events, struct curl_data* ctrl) {
         for (int i = 0; i < handles; ++i, handle = handle->next) {
             states[i] = handle->state;
         }
+
+        mresult = curl_multi_socket_action(base->multi, fd, events, &remaining);
     } else if (ctrl->failure) {
         goto fail;
+    } else {
+        mresult = curl_multi_perform(base->multi, &remaining);
     }
-
-    int remaining = 1;
-
-    CURLMcode mresult = curl_multi_socket_action(base->multi, fd, events, &remaining);
 
     if (unlikely(mresult)) {
         handleMultiError(ctrl, mresult);
@@ -564,7 +588,14 @@ fail:
 static size_t read_callback(char *buffer, size_t size, size_t nitems, void *instream) {
     struct curl_data* ctrl = (struct curl_data*) (intptr_t) instream;
 
-    LOG("Read called for %d bytes, space left in buffer: %d, offset: %d", ctrl->countToWrite, size * nitems, ctrl->writeOffset);
+    if ((ctrl->state & STATE_NEED_OUTPUT) == 0) {
+        // freeloading handle, bail
+        return CURL_WRITEFUNC_PAUSE;
+    }
+
+    struct curl_common* base = ctrl->base;
+
+    LOG("Read called for %d bytes, space left in buffer: %d, offset: %d", base->countToWrite, size * nitems, base->writeOffset);
 
     if (ctrl->state & STATE_DONE_SENDING) {
         LOG("Stopping sending");
@@ -572,7 +603,7 @@ static size_t read_callback(char *buffer, size_t size, size_t nitems, void *inst
         return 0;
     }
 
-    if (ctrl->countToWrite == 0) {
+    if (base->countToWrite == 0) {
         LOG("Pausing sending");
 
         // we have run out of data to send, slow down
@@ -586,7 +617,7 @@ static size_t read_callback(char *buffer, size_t size, size_t nitems, void *inst
     int written;
 
     if (buf_ != NULL) {
-        int available = ctrl->countToWrite;
+        int available = base->countToWrite;
 
         int curlBufferCapacity = size * nitems;
 
@@ -594,12 +625,12 @@ static size_t read_callback(char *buffer, size_t size, size_t nitems, void *inst
 
         array_read(ctrl, buf_, buffer, written);
 
-        ctrl->writeOffset += written;
+        base->writeOffset += written;
     } else {
         // writing a single byte
         written = 1;
 
-        *buffer = (unsigned char) ctrl->writeOffset;
+        *buffer = (unsigned char) base->writeOffset;
     }
 
     uint64_t goal = ctrl->uploadGoal;
@@ -612,7 +643,7 @@ static size_t read_callback(char *buffer, size_t size, size_t nitems, void *inst
         }
     }
 
-    ctrl->countToWrite -= written;
+    base->countToWrite -= written;
 
     return (size_t) written;
 }
@@ -797,11 +828,16 @@ static size_t seek_callback(void *userp, curl_off_t offset, int origin) {
 static size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) {
     struct curl_data* ctrl = (struct curl_data*) (intptr_t) userdata;
 
+    if ((ctrl->state & STATE_NEED_INPUT) == 0) {
+        // freeloading handle, bail
+        return CURL_READFUNC_PAUSE;
+    }
+
     struct curl_common* base = ctrl->base;
 
-    LOG("Write called for %d bytes, space left in buffer: %d", size * nmemb, ctrl->countToRead);
+    LOG("Write called for %d bytes, space left in buffer: %d", size * nmemb, base->countToRead);
 
-    if (ctrl->countToRead == 0) {
+    if (base->countToRead == 0) {
         SET_RECV_PAUSED(ctrl);
 
         LOG("Pausing receiving, flags: %d", ctrl->state);
@@ -809,7 +845,7 @@ static size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdat
         return CURL_READFUNC_PAUSE;
     }
 
-    LOG("Source offset: %d, target offset: %d", ctrl->readOverflow, ctrl->readOffset);
+    LOG("Source offset: %d, target offset: %d", ctrl->readOverflow, base->readOffset);
 
     JNIEnv* env = get_env(base);
     jbyteArray buf_ = base->bufferForReceiving;
@@ -833,21 +869,21 @@ static size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdat
     int read = 0;
 
     if (buf_ != NULL) {
-        int available = ctrl->countToRead;
+        int available = base->countToRead;
 
         read = available > pendingReal ? pendingReal : available;
 
         array_write(ctrl, buf_, ptr, read);
 
-        ctrl->readOffset += read;
-    } else if (ctrl->countToRead != 0) {
+        base->readOffset += read;
+    } else if (base->countToRead != 0) {
         // consume a single byte
         read = 1;
 
-        ctrl->readOffset = *ptr;
+        base->readOffset = *ptr;
     }
 
-    ctrl->countToRead -= read;
+    base->countToRead -= read;
 
     //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "space left in buffer: %d", ctrl->countToRead);
 
@@ -907,6 +943,8 @@ struct  timespec tsCreateF(double fSeconds) {
 }
 
 int tsCompare(struct timespec time1, struct timespec  time2) {
+    //LOG("comparing");
+
     if (time1.tv_sec < time2.tv_sec)
         return -1;                           /* Less than. */
     else if (time1.tv_sec > time2.tv_sec)
@@ -920,13 +958,17 @@ int tsCompare(struct timespec time1, struct timespec  time2) {
 }
 
 static int timerfd_settime(int fd, struct itimerspec* timespec) {
-    return syscall(__NR_timerfd_settime, fd, 0, timespec, NULL);
+    return syscall(__NR_timerfd_settime, fd, 1, timespec, NULL);
 }
 
 static int timer_callback(CURLM *multi, long timeout_ms, void *userp) {
-    LOG("timer_callback %d", timeout_ms);
-
     struct curl_data* ctrl = (struct curl_data*) (intptr_t) userp;
+
+    if (!ctrl->base->callback) {
+        return 0;
+    }
+
+    LOG("timer_callback %ld", timeout_ms);
 
     struct curl_common* base = ctrl->base;
 
@@ -936,6 +978,7 @@ static int timer_callback(CURLM *multi, long timeout_ms, void *userp) {
 
     int res = 0;
 
+
     switch (timeout_ms) {
         case -1:
             res = timerfd_settime(base->timerfd, &itimerspec);
@@ -943,21 +986,40 @@ static int timer_callback(CURLM *multi, long timeout_ms, void *userp) {
         default:
             clock_gettime(CLOCK_MONOTONIC, &current);
 
-            timerspec = tsAdd(current, tsCreateF(timeout_ms / 1000));
+            /*
+            LOG("current s is %lld", (long long) current.tv_sec);
+            LOG("current ns is %lld", (long long) current.tv_nsec);
+ */
 
-            if (tsCompare(base->alarm, timerspec) > 0) {
-                itimerspec.it_value = timerspec;
-                res = timerfd_settime(base->timerfd, &itimerspec);
-            }
+            LOG("goal s is %lld", (long long) base->alarm.tv_sec);
+            LOG("goal ns is %lld", (long long) base->alarm.tv_nsec);
+
+            double increase = timeout_ms / 1000.0;
+
+            LOG("increase is %lf s", increase);
+
+            timerspec = tsAdd(current, tsCreateF(increase));
+
+            LOG("new s is %lld", (long long) timerspec.tv_sec);
+            LOG("new ns is %lld", (long long) timerspec.tv_nsec);
+
+            LOG("rearming timer");
+
+            itimerspec.it_value = timerspec;
+            res = timerfd_settime(base->timerfd, &itimerspec);
+            base->alarm = timerspec;
+            break;
         case 0:
-            doLoop(CURL_SOCKET_TIMEOUT, 0, ctrl);
+            if (doOnce(CURL_SOCKET_TIMEOUT, 0, ctrl)) {
+                return -1;
+            }
     }
 
     return res;
 }
 
 static int looper_callback(int fd, int events, void* data) {
-    LOG("looper_callback");
+    LOG("looper_callback %d %d", fd, events);
 
     struct curl_data* ctrl = (struct curl_data*) (intptr_t) data;
 
@@ -978,6 +1040,8 @@ static int looper_callback(int fd, int events, void* data) {
     }
 
     if (fd == base->timerfd) {
+        uint64_t spare;
+        read(base->timerfd, &spare, sizeof(spare));
         fd = CURL_SOCKET_TIMEOUT;
         events = 0;
     }
@@ -986,7 +1050,7 @@ static int looper_callback(int fd, int events, void* data) {
     // method is outside of our control
     base->env = NULL;
 
-    doLoop(fd, events, ctrl);
+    doOnce(fd, events, ctrl);
 
     RELEASE(base->busy);
 
@@ -999,7 +1063,7 @@ garbage:
 }
 
 static int socket_callback(CURL *easy, curl_socket_t s, int what, void *userp, void *socketp) {
-    LOG("looper_callback %d", s);
+    LOG("socket_callback %d", s);
 
     struct curl_data* ctrl = (struct curl_data*) (intptr_t) userp;
 
@@ -1131,6 +1195,8 @@ static inline bool hashKeyCompare(void* a, void* b) {
     return result == 0;
 }
 
+#define MAX_OF(t) (((t)(~0LLU) > (t)((1LLU<<((sizeof(t)<<3)-1))-1LLU)) ? (long long unsigned int)(t)(~0LLU) : (long long unsigned int)(t)((1LLU<<((sizeof(t)<<3)-1))-1LLU))
+
 JNIEXPORT jobject JNICALL Java_net_sf_chttpc_Curl_nativeCreate(JNIEnv *env, jclass type, jlong parentPtr, jint flags) {
     struct curl_data* parent = (struct curl_data *) (intptr_t) parentPtr;
 
@@ -1142,6 +1208,8 @@ JNIEXPORT jobject JNICALL Java_net_sf_chttpc_Curl_nativeCreate(JNIEnv *env, jcla
         throwOther(env, "timerfd_create failed", ERROR_OTHER);
         return 0;
     }
+
+    fcntl(timerfd, F_SETFL, O_NONBLOCK);
 
     LOG("++++++++nativeCreate 1");
 
@@ -1179,6 +1247,9 @@ JNIEXPORT jobject JNICALL Java_net_sf_chttpc_Curl_nativeCreate(JNIEnv *env, jcla
     }
 
     memset(ctrl, 0, mem);
+
+    base->alarm.tv_sec = MAX_OF(typeof(base->alarm.tv_sec));
+    base->alarm.tv_nsec = MAX_OF(typeof(base->alarm.tv_nsec));
 
     jobject buffer = (*env)->NewDirectByteBuffer(env, ctrl, mem);
 
@@ -1303,25 +1374,18 @@ static bool curlPerform(struct curl_data* ctrl) {
 
     do {
         if (*base->interrupted) {
-            return false;
+            return true;
         }
-
-        int running;
 
         LOG("Invoking perform()");
 
-        CURLMcode result = curl_multi_perform(base->multi, &running);
-
-        if (unlikely(result)) {
-            handleMultiError(ctrl, result);
+        if (unlikely(doOnce(CURL_SOCKET_TIMEOUT, 0, ctrl))) {
             return true;
         }
 
-        checkResult(base);
-
         if ((ctrl->state & STATE_FINISHED) != 0) {
-            LOG("Has completed connections, bailing");
-            return true;
+            LOG("Сonnections completed, bailing");
+            return false;
         }
 
         if ((ctrl->state & STATE_NEED_INPUT && ctrl->state & STATE_RECV_PAUSED) || (ctrl->state & STATE_NEED_OUTPUT
@@ -1338,17 +1402,16 @@ static bool curlPerform(struct curl_data* ctrl) {
             LOG("state is: %u", ctrl->state);
         }
 
-        if (running == 0) {
-            LOG("No running connections, bailing");
+        if (*base->interrupted) {
             return true;
         }
 
-        if (*base->interrupted) {
-            return false;
+        long waitTime = -333;
+        CURLMcode r = curl_multi_timeout(base->multi, &waitTime);
+        if (r) {
+            handleMultiError(ctrl, r);
+            return true;
         }
-
-        long waitTime;
-        curl_multi_timeout(base->multi, &waitTime);
 
         if (timeout < waitTime) {
             waitTime = timeout;
@@ -1426,9 +1489,6 @@ JNIEXPORT jcharArray JNICALL Java_net_sf_chttpc_Curl_nativeConfigure(JNIEnv *env
 
     base->env = env;
     base->interrupted = (i10n_ptr) (intptr_t) i10nPtr;
-
-    ctrl->countToRead = 0;
-    ctrl->countToWrite = 0;
     ctrl->errorBuffer[0] = 0;
 
     CURL* curl = ctrl->curl;
@@ -1601,13 +1661,12 @@ JNIEXPORT jcharArray JNICALL Java_net_sf_chttpc_Curl_nativeConfigure(JNIEnv *env
     }
 
     if (*base->interrupted) {
-        throwInterruptedException(ctrl, 0);
         goto enough;
     }
 
     LOG("before 'perform'");
 
-    if (doLoop(CURL_SOCKET_TIMEOUT, 0, ctrl)) {
+    if (doOnce(CURL_SOCKET_TIMEOUT, 0, ctrl)) {
         goto enough;
     }
 
@@ -1624,7 +1683,7 @@ JNIEXPORT jcharArray JNICALL Java_net_sf_chttpc_Curl_nativeConfigure(JNIEnv *env
     }
 
     if (*base->interrupted) {
-        throwInterruptedException(ctrl, 0);
+        goto enough;
     }
 
     if (followRedirects) {
@@ -1710,9 +1769,8 @@ JNIEXPORT jint JNICALL Java_net_sf_chttpc_Curl_read(JNIEnv *env, jclass type, jl
     base->bufferForReceiving = buf_;
     base->interrupted = (i10n_ptr) (intptr_t) i10nPtr;
 
-    ctrl->readOffset = off;
-    ctrl->countToRead = count;
-    ctrl->countToWrite = 0;
+    base->readOffset = off;
+    base->countToRead = count;
     ctrl->errorBuffer[0] = 0;
 
     if (ctrl->state & STATE_RECV_PAUSED) {
@@ -1729,25 +1787,23 @@ JNIEXPORT jint JNICALL Java_net_sf_chttpc_Curl_read(JNIEnv *env, jclass type, jl
     //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "%s", "before perform inside read()");
 
     if (*base->interrupted) {
-        throwInterruptedException(ctrl, count - ctrl->countToRead);
         goto success;
     }
 
     bool perform = curlPerform(ctrl);
 
     if (*base->interrupted) {
-        throwInterruptedException(ctrl, count - ctrl->countToRead);
         goto success;
     }
 
-    if (perform && ctrl->countToRead > 0 && ctrl->countToRead == count) {
+    if (perform && base->countToRead > 0 && base->countToRead == count) {
         LOG("returning -1 from read()");
         goto enough;
     }
 
     //__android_log_print(ANDROID_LOG_DEBUG, "Curl", "returning %d from read()", count - ctrl->countToRead);
 success:
-    retVal = buf_ == NULL ? ctrl->readOffset : count - ctrl->countToRead;
+    retVal = buf_ == NULL ? base->readOffset : count - base->countToRead;
 
 enough:
     SET_NEED_NO_INPUT(ctrl);
@@ -1782,9 +1838,8 @@ JNIEXPORT jint JNICALL Java_net_sf_chttpc_Curl_write(JNIEnv *env, jclass type, j
     base->bufferForSending = buf_;
     base->interrupted = (i10n_ptr) (intptr_t) i10nPtr;
 
-    ctrl->writeOffset = off;
-    ctrl->countToWrite = count;
-    ctrl->countToRead = 0;
+    base->writeOffset = off;
+    base->countToWrite = count;
     ctrl->errorBuffer[0] = 0;
 
     if (ctrl->state & STATE_SEND_PAUSED) {
@@ -1799,16 +1854,14 @@ JNIEXPORT jint JNICALL Java_net_sf_chttpc_Curl_write(JNIEnv *env, jclass type, j
     }
 
     if (*base->interrupted) {
-        throwInterruptedException(ctrl, count - ctrl->countToWrite);
         goto enough;
     }
 
-    if (ctrl->countToWrite > 0) {
+    if (base->countToWrite > 0) {
         curlPerform(ctrl);
     }
 
     if (*base->interrupted) {
-        throwInterruptedException(ctrl, count - ctrl->countToWrite);
         goto enough;
     }
 
@@ -1816,7 +1869,7 @@ enough:
     SET_NEED_NO_OUTPUT(ctrl);
     RELEASE(base->busy);
 
-    return count - ctrl->countToWrite;
+    return count - base->countToWrite;
 }
 
 JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_closeOutput(JNIEnv *env, jclass type, jlong curlPtr, jlong i10nPtr) {
@@ -1834,8 +1887,8 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_closeOutput(JNIEnv *env, jclass t
     base->env = env;
     base->interrupted = (i10n_ptr) (intptr_t) i10nPtr;
 
-    ctrl->countToRead = 0;
-    ctrl->countToWrite = 0;
+    base->countToRead = 0;
+    base->countToWrite = 0;
     ctrl->errorBuffer[0] = 0;
 
     SET_NEED_OUTPUT(ctrl);
@@ -2522,6 +2575,8 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_setListener(JNIEnv *env, jclass t
     }
 
     if (base->callback != NULL) {
+        ALooper_removeFd(base->looper, base->timerfd);
+
         ALooper_release(base->looper);
 
         (*env)->DeleteGlobalRef(env, base->callback);
@@ -2537,6 +2592,8 @@ JNIEXPORT void JNICALL Java_net_sf_chttpc_Curl_setListener(JNIEnv *env, jclass t
         base->looper = looper;
 
         ALooper_acquire(looper);
+
+        ALooper_addFd(looper, base->timerfd, 0, ALOOPER_EVENT_INPUT, &looper_callback, ctrl);
     }
 
     RELEASE(base->busy);

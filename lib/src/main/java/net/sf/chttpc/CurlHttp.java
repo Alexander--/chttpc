@@ -44,10 +44,15 @@ public class CurlHttp implements Cloneable {
         debug = Boolean.valueOf(System.getProperty(DEBUG));
     }
 
-    public static final int OFF_READ_PENDING = 32;
-    public static final int OFF_CONN_TIMEOUT = 44;
-    public static final int OFF_READ_TIMEOUT = OFF_CONN_TIMEOUT + 4;
-    public static final int OFF_STATE        = OFF_READ_TIMEOUT + 4;
+    private static final int UINT16_BYTES = Short.SIZE / 8;
+    private static final int UINT32_BYTES = Integer.SIZE / 8;
+
+    public static final int OFF_REQUEST_HDRS = 0;
+    public static final int OFF_HEADER_COUNT = OFF_REQUEST_HDRS + UINT16_BYTES;
+    public static final int OFF_STATE        = OFF_HEADER_COUNT + UINT16_BYTES;
+    public static final int OFF_READ_PENDING = OFF_STATE + UINT32_BYTES;
+    public static final int OFF_CONN_TIMEOUT = OFF_READ_PENDING + UINT32_BYTES;
+    public static final int OFF_READ_TIMEOUT = OFF_CONN_TIMEOUT + UINT32_BYTES;
 
     @Retention(RetentionPolicy.SOURCE)
     @IntDef({OFF_READ_PENDING, OFF_CONN_TIMEOUT, OFF_READ_TIMEOUT, OFF_STATE})
