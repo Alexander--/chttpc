@@ -145,6 +145,7 @@ struct curl_common {
     uint16_t connections;
 };
 
+#pragma pack(1)
 struct curl_data {
     uint16_t headerPairCount;
     uint16_t outHeaderCount;
@@ -152,6 +153,7 @@ struct curl_data {
     jint readOverflow;
     jint connTimeout;
     jint readTimeout;
+    uint32_t headerBufSize;
     uint64_t uploadedCount;
     uint64_t uploadGoal;
     struct curl_common* base;
@@ -161,10 +163,16 @@ struct curl_data {
     Hashmap* headers;
     void** headerPairs;
     CURLcode failure;
-    uint32_t headerBufSize;
     uint16_t maxHeaderLength;
     char errorBuffer[CURL_ERROR_SIZE];
 };
+
+static_assert(offsetof(struct curl_data, headerPairCount) == 0, "unexpected offset to headerPairCount");
+static_assert(offsetof(struct curl_data, outHeaderCount) == 2, "unexpected offset to outHeaderCount");
+static_assert(offsetof(struct curl_data, state) == 4, "unexpected offset to state");
+static_assert(offsetof(struct curl_data, readOverflow) == 8, "unexpected offset to readOverflow");
+static_assert(offsetof(struct curl_data, connTimeout) == 12, "unexpected offset to connTimeout");
+static_assert(offsetof(struct curl_data, readTimeout) == 16, "unexpected offset to readTimeout");
 
 struct curl_both {
     struct curl_data instance;
@@ -1237,21 +1245,26 @@ JNIEXPORT jobject JNICALL Java_net_sf_chttpc_Curl_nativeCreate(JNIEnv *env, jcla
         base = parent->base;
     } else {
         mem = sizeof(struct curl_both);
-        ctrl = memalign(64u, mem);
-        base = (char*) ctrl + offsetof(struct curl_both, common);
+        struct curl_both* both = memalign(64u, mem);
+        ctrl = &both->instance;
+        base = &both->common;
     }
 
     if (ctrl == NULL) {
         oomThrow(env);
-        return 0;
+        return NULL;
     }
 
     memset(ctrl, 0, mem);
 
+    ctrl->connTimeout = 22;
+
+    LOG("timeouts %d %d", ctrl->connTimeout, ctrl->readTimeout);
+
     base->alarm.tv_sec = MAX_OF(typeof(base->alarm.tv_sec));
     base->alarm.tv_nsec = MAX_OF(typeof(base->alarm.tv_nsec));
 
-    jobject buffer = (*env)->NewDirectByteBuffer(env, ctrl, mem);
+    jobject buffer = (*env)->NewDirectByteBuffer(env, ctrl, sizeof(struct curl_data));
 
     LOG("++++++++nativeCreate 3");
 
@@ -1307,7 +1320,7 @@ JNIEXPORT jobject JNICALL Java_net_sf_chttpc_Curl_nativeCreate(JNIEnv *env, jcla
     curl_multi_setopt(multi, CURLMOPT_SOCKETDATA, ctrl);
     curl_multi_setopt(multi, CURLMOPT_SOCKETFUNCTION, &socket_callback);
     curl_multi_setopt(multi, CURLMOPT_TIMERDATA, ctrl);
-    curl_multi_setopt(multi, CURLMOPT_TIMERFUNCTION, &timer_callback);
+    //curl_multi_setopt(multi, CURLMOPT_TIMERFUNCTION, &timer_callback);
 
     ctrl->curl = curl;
     base->multi = multi;
@@ -1363,6 +1376,8 @@ static void asciiDecode(JNIEnv* env, jstring str, char* dest, jint length) {
 
 static bool curlPerform(struct curl_data* ctrl) {
     struct curl_common* base = ctrl->base;
+
+    LOG("Crappy numbers %d %d", ctrl->connTimeout, ctrl->readTimeout);
 
     int timeout = ctrl->headerPairCount == 0 ? ctrl->connTimeout : ctrl->readTimeout;
 
